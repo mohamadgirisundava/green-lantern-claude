@@ -281,6 +281,43 @@ test('the ring takes the glyph’s cell and its power rides the row above: nothi
   }
 })
 
+test('on a wide terminal the power rides the far end of the verb row; narrower, or on the desktop, the row above', async ($, on) => {
+  mock.clock(on, { now: NOW })
+  answerSession(on)
+  engineSpinner(on)
+  await start($)
+
+  const ui = await $.ui.mount({ plugin: 'green-lantern', surface: 'terminal', viewport: { columns: 120, rows: 40 }, ...spinner('thinking') })
+  expect(await ui.find({ type: 'Text', text: '\u273B Focusing\u2026 (56s)' })).toBeDefined()
+  // Two small regions on the verb row, none over the engine's words: a region repaints whole on every frame,
+  // so one spanning the row made the words under it blink. The ring takes the glyph's cell, the power the last eight.
+  const layers = (await ui.findAll({ type: 'Box' })).filter(b => b.props.position === 'absolute').map(b => b.props)
+  expect(layers).toEqual([
+    { position: 'absolute', top: 1, left: 0 },
+    { position: 'absolute', top: 1, left: 112 },
+  ])
+  const clients = await ui.findAll({ type: 'Client' })
+  expect(clients.map(c => c.key)).toEqual(['ring-focusing', 'power-focusing'])
+  expect(clients.some(c => c.props.width !== undefined)).toBe(false)
+  expect((await ui.findAll({ type: 'Text', in: 'ring-focusing' })).map(t => t.text)).toEqual(['\u25C9'])
+  expect((await ui.find({ type: 'Text', in: 'power-focusing' }))?.text).toMatch(/^[\u2800-\u28FF]{8}$/)
+  await ui.unmount()
+
+  // Charging has no power yet: only the ring's region.
+  const charging = await $.ui.mount({ plugin: 'green-lantern', surface: 'terminal', viewport: { columns: 120, rows: 40 }, ...spinner('requesting') })
+  expect((await charging.findAll({ type: 'Client' })).map(c => c.key)).toEqual(['ring-charging'])
+  await charging.unmount()
+
+  // Too narrow to be sure the engine's words end before the power, or a desktop row: the power stays above.
+  for (const [surface, columns] of [['terminal', 80], ['desktop', 120]] as const) {
+    const above = await $.ui.mount({ plugin: 'green-lantern', surface, viewport: { columns, rows: 40 }, ...spinner('thinking') })
+    expect((await above.findAll({ type: 'Box' })).find(b => b.props.position === 'absolute')?.props).toMatchObject({ top: 0, left: 0 })
+    expect((await above.findAll({ type: 'Client' })).map(c => c.key)).toEqual(['ring-focusing'])
+    expect((await layer(above, 'ring-focusing')).power).toMatch(/^ [\u2800-\u28FF]{8}$/)
+    await above.unmount()
+  }
+})
+
 test('each mode has its ring and its power, and both move', async ($, on) => {
   mock.clock(on, { now: NOW })
   answerSession(on)

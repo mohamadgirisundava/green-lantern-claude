@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, SessionContextUsage, SessionRateLimit, Timer } from 'claude-code'
 
 import type { HudRateLimit, HudUsage } from '../types'
-import type { RingProps } from './ring'
+import { POWER_CELLS, type RingProps } from './ring'
 
 // Emerald Willpower: the palette of ~/.claude/themes/green-lantern.json. The HUD stays all green:
 // the user found yellow and red too loud, so alarms are told by paler greens instead.
@@ -31,6 +31,10 @@ const RING: Record<string, { kind: RingProps['kind']; word: string }> = {
   'tool-input': { kind: 'surging', word: 'Shaping' },
   'tool-use': { kind: 'surging', word: 'Constructing' },
 }
+// From this width the power rides the far end of the verb row. The engine's words there reach about 80 cells
+// (`Constructing… (1h 2m 3s · ↓ 120.5k tokens · still thinking with xhigh effort)`) and their length never reaches
+// the plugin, so narrower terminals keep the power on the row above.
+const INLINE_FROM_COLUMNS = 100
 // A fresh session's welcome: the emblem (a ring held between two bars), lit neon at the top down to
 // emerald at the base, beside the oath. It needs WELCOME_ROWS rows above the usage line and room for the art.
 const EMBLEM_ART: [string, string][] = [
@@ -250,7 +254,8 @@ export const register: Register = on => {
 
   // The spinner: the engine's row is sealed (an opaque handle), so nothing can go inside it, and shifting it
   // pushes its tip row too. Instead one layer is painted over it, taking no room: the ring in column 0 of the
-  // verb row (over the glyph) and the power on the empty spacer row above. Nothing of the engine's moves.
+  // verb row (over the glyph) and the power at the far end of that row on a wide terminal, else on the empty
+  // spacer row above. Nothing of the engine's moves.
   on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
     const ring = RING[e.props.mode]
     const drawn = await next(ring && e.props.message === null ? { ...e, props: { ...e.props, word: ring.word } } : e)
@@ -266,11 +271,33 @@ export const register: Register = on => {
       neon: GL.neon,
       white: GL.white,
     }
+    const columns = e.viewport?.columns ?? 0
+    if (e.surface === 'terminal' && columns >= INLINE_FROM_COLUMNS) {
+      // A region repaints whole on every frame, so neither spans the engine's words: the ring keeps the glyph's
+      // cell and the power the last cells of the row. Charging has no power yet.
+      const power =
+        ring.kind === 'charging'
+          ? []
+          : [
+              <Box position="absolute" top={1} left={columns - POWER_CELLS}>
+                <Client key={`power-${ring.kind}`} module="./ring.tsx" props={{ kind: ring.kind, part: 'power', palette } satisfies RingProps} />
+              </Box>,
+            ]
+      return (
+        <Box flexDirection="column">
+          {drawn}
+          <Box position="absolute" top={1} left={0}>
+            <Client key={`ring-${ring.kind}`} module="./ring.tsx" props={{ kind: ring.kind, part: 'ring', palette } satisfies RingProps} />
+          </Box>
+          {...power}
+        </Box>
+      )
+    }
     return (
       <Box flexDirection="column">
         {drawn}
         <Box position="absolute" top={0} left={0}>
-          <Client key={`ring-${ring.kind}`} module="./ring.tsx" props={{ kind: ring.kind, palette }} />
+          <Client key={`ring-${ring.kind}`} module="./ring.tsx" props={{ kind: ring.kind, part: 'both', palette } satisfies RingProps} />
         </Box>
       </Box>
     )

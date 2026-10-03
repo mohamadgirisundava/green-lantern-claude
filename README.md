@@ -8,7 +8,7 @@ A Green Lantern UI for [Claude Code](https://claude.com/claude-code), packaged a
 
 ## What you get
 
-**Ring-power spinner.** The ring takes the place of the spinner glyph, and its power moves on the row above. It changes with what Claude is doing:
+**Ring-power spinner.** The ring takes the place of the spinner glyph, and its power moves at the far end of the same row (on the row above in terminals narrower than 100 columns). It changes with what Claude is doing:
 
 | Claude is… | Ring | Power |
 |---|---|---|
@@ -61,7 +61,7 @@ In `~/.claude/settings.json`:
 ## Requirements and caveats
 
 - **Claude Code with plugin mods (function hooks).** Tested on Claude Code 2.1.288. The mod API is early access and may change between releases. If something breaks after an upgrade, please open an issue.
-- **Spinner layout.** The ring layer sits over Claude Code's own spinner row and relies on its current layout: an empty row above the verb, and the glyph in the first column.
+- **Spinner layout.** The ring layer sits over Claude Code's own spinner row and relies on its current layout: the glyph in the first column, room at the end of the verb row (the power takes the last 8 columns), and, below 100 columns, an empty row above the verb.
 - **Font.** Your terminal font needs braille characters (U+2800–U+28FF) and `⊜`. Most modern monospace fonts have them.
 - **Surfaces.** The animations draw in the terminal and the desktop app. Elsewhere you get the still version.
 - **Cost.** The animation only runs while Claude is working, on Claude Code's own frame clock. Idle cost is a 30-second timer.

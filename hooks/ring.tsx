@@ -1,15 +1,20 @@
 import type { ClientModule } from 'claude-code'
 
-/** What the band hands the ring: which animation, and the Lantern palette to paint it in. */
+/** What the band hands the ring: which animation, which part of it this region draws, and the palette to paint it in. */
 export type RingProps = {
   kind: 'charging' | 'focusing' | 'flowing' | 'surging'
+  /** `both`: the power row above the ring. `ring` or `power` alone: the two regions of the verb row's far ends. */
+  part: 'both' | 'ring' | 'power'
   palette: { deep: string; emerald: string; lantern: string; glow: string; neon: string; white: string }
 }
+
+/** How many cells the power takes: where the band places its region at the verb row's far end. */
+export const POWER_CELLS = 8
 
 type Cell = { ch: string; color: string; bold?: boolean }
 
 const STEP_MS = 110
-const CELLS = 8
+const CELLS = POWER_CELLS
 // The power row is a 16×4 canvas of dots: eight braille characters, each a 2×4 grid.
 const W = CELLS * 2
 const H = 4
@@ -133,9 +138,10 @@ function frameOf({ kind, palette: p }: RingProps, f: number): { ring: Cell; powe
 }
 
 /**
- * The ring's animation on the surface's own frame clock, drawn as two rows over the engine's spinner:
+ * The ring's animation on the surface's own frame clock, drawn over the engine's spinner. Both: two rows,
  * the power row on its empty spacer row (from column 1), the ring in column 0 of the verb row, over the glyph.
- * Only written cells paint, so the rest of the verb row shows through untouched.
+ * The region repaints whole on every frame, so it never spans the engine's words: on a wide terminal the
+ * ring and the power are two regions of their own at the verb row's two ends.
  */
 const Ring: ClientModule<RingProps, number> = (props, surface) => {
   const { Box, Text } = surface.elements
@@ -145,19 +151,25 @@ const Ring: ClientModule<RingProps, number> = (props, surface) => {
     surface.every(STEP_MS, () => surface.setState(++frame))
   }
   const { ring, power } = frameOf(props, surface.state ?? 0)
+  const cells = power.map(cell => (
+    <Text bold={cell.bold} color={cell.color}>
+      {cell.ch}
+    </Text>
+  ))
+  const glyph = (
+    <Text bold={ring.bold} color={ring.color}>
+      {ring.ch}
+    </Text>
+  )
+  if (props.part === 'ring') return glyph
+  if (props.part === 'power') return <Text>{...cells}</Text>
   return (
     <Box flexDirection="column">
       <Text>
         {' '}
-        {...power.map(cell => (
-          <Text bold={cell.bold} color={cell.color}>
-            {cell.ch}
-          </Text>
-        ))}
+        {...cells}
       </Text>
-      <Text bold={ring.bold} color={ring.color}>
-        {ring.ch}
-      </Text>
+      {glyph}
     </Box>
   )
 }
