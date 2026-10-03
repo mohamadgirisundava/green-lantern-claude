@@ -1,0 +1,71 @@
+{
+  "name": "Green Lantern",
+  "base": "dark",
+  "overrides": {
+    "claude": "#3DDC84",
+    "claudeShimmer": "#9DFFC4",
+    "clawd_body": "#3DDC84",
+    "briefLabelClaude": "#3DDC84",
+    "briefLabelYou": "#A8F5C8",
+
+    "claudeBlue_FOR_SYSTEM_SPINNER": "#2BD9A8",
+    "claudeBlueShimmer_FOR_SYSTEM_SPINNER": "#8CF5D6",
+    "permission": "#A8F5C8",
+    "permissionShimmer": "#E0FFEC",
+    "suggestion": "#A8F5C8",
+    "remember": "#A8F5C8",
+
+    "autoAccept": "#39FF14",
+    "autoAcceptShimmer": "#B6FF9E",
+    "skill": "#7DFFAF",
+    "merged": "#7DFFAF",
+    "effortUltra": "#39FF14",
+    "fastMode": "#39FF14",
+    "fastModeShimmer": "#B6FF9E",
+    "bashBorder": "#39FF14",
+    "planMode": "#2E9E5B",
+    "ide": "#2BD9A8",
+    "background": "#2BD9A8",
+
+    "promptBorder": "#1F5C38",
+    "promptBorderShimmer": "#3DDC84",
+    "text": "#EAFBF0",
+    "inactive": "#6E8F7B",
+    "inactiveShimmer": "#A3C2AE",
+    "subtle": "#24402F",
+
+    "success": "#3DDC84",
+    "warning": "#C8F03C",
+    "warningShimmer": "#E4FF8A",
+    "error": "#FF4D5E",
+
+    "diffAdded": "#0F4A27",
+    "diffAddedDimmed": "#1D3A28",
+    "diffAddedWord": "#2FBF63",
+
+    "userMessageBackground": "#12261A",
+    "userMessageBackgroundHover": "#1A3524",
+    "composerSidebarBackground": "#0A1F14",
+    "bashMessageBackgroundColor": "#10241A",
+    "memoryBackgroundColor": "#0F2620",
+    "selectionBg": "#1E5631",
+
+    "rate_limit_fill": "#3DDC84",
+    "rate_limit_empty": "#1F5C38",
+
+    "rainbow_red": "#E8112D",
+    "rainbow_orange": "#FF7F00",
+    "rainbow_yellow": "#FFD500",
+    "rainbow_green": "#3DDC84",
+    "rainbow_blue": "#29B6F6",
+    "rainbow_indigo": "#5C3FBF",
+    "rainbow_violet": "#B44CE6",
+    "rainbow_red_shimmer": "#FF6B7D",
+    "rainbow_orange_shimmer": "#FFB266",
+    "rainbow_yellow_shimmer": "#FFE866",
+    "rainbow_green_shimmer": "#9DFFC4",
+    "rainbow_blue_shimmer": "#8FDBFF",
+    "rainbow_indigo_shimmer": "#9C86E6",
+    "rainbow_violet_shimmer": "#DDA0F5"
+  }
+}

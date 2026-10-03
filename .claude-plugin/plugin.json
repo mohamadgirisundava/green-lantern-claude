@@ -1,0 +1,9 @@
+{
+  "name": "green-lantern",
+  "version": "0.1.0",
+  "description": "A Green Lantern UI for Claude Code: a ring-power spinner, battery-style usage bars, a fresh-session emblem, and an emerald theme",
+  "author": { "name": "vogiaan1904" },
+  "license": "MIT",
+  "keywords": ["theme", "hud", "statusline", "spinner", "green-lantern"],
+  "types": "./types/index.d.ts"
+}

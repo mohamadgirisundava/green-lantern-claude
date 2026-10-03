@@ -1,0 +1,14 @@
+{
+  "name": "green-lantern",
+  "description": "A Green Lantern UI for Claude Code",
+  "owner": {
+    "name": "vogiaan1904"
+  },
+  "plugins": [
+    {
+      "name": "green-lantern",
+      "source": "./",
+      "description": "A Green Lantern UI for Claude Code"
+    }
+  ]
+}
