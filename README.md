@@ -4,6 +4,8 @@
 
 A Green Lantern UI for [Claude Code](https://claude.com/claude-code), packaged as a plugin. Claude's spinner becomes a power ring, your usage limits become the ring's charge, and the theme goes emerald throughout.
 
+![A fresh Claude Code session in the Green Lantern theme: the lantern emblem drawn in green blocks beside "Green Lantern Corps · Sector 2814", the oath, and the model, effort and project, with the usage bars below](assets/emblem.png)
+
 ## What you get
 
 **Ring-power spinner.** The ring takes the place of the spinner glyph, and its power moves on the row above. It changes with what Claude is doing:
@@ -15,16 +17,15 @@ A Green Lantern UI for [Claude Code](https://claude.com/claude-code), packaged a
 | Writing | `⊜` | Liquid light sloshing, sparks popping off the crests |
 | Using a tool | `⊜` flickering white-hot | The liquid boiling |
 
+![One turn from Enter to done: liquid light sloshes above the ring during "Forging…", flares through "Shaping…" as Claude writes a command, boils during "Constructing…" while it runs, and the turn closes with "Channeled for 14s"](assets/ring-power.gif)
+
 The spinner words follow the same modes: *Charging, Focusing, Forging, Shaping, Constructing*. Nothing in Claude Code's own row moves: the timer, token count and tips stay where they are.
 
 **Battery-style usage bars.** The 5-hour and 7-day limits show the charge *left*, full when unused and draining as you work. They pale from lantern green, to glow at 25% left, to almost white at 10%.
 
-```
-[Opus 5.5 xhigh] │ my-project
-› 5h ▰▰▰▱▱▱▱▱ 40% ↻1h15m  › 7d ▰▱▱▱▱▱▱▱ 10% ↻12h15m  › 514k/1.0M  › cache 60m
-```
+![The HUD band after a turn: "Constructed for 1m 10s", the model badge, a green 5-hour bar at 13% left, a near-white 7-day bar at 6% left, 636k of 1.0M context tokens, and a 60-minute cache countdown](assets/hud.png)
 
-**A fresh-session emblem.** A new session (or one just `/clear`ed) opens with the lantern emblem and the oath above the prompt. It folds away into the everyday HUD on your first prompt.
+**A fresh-session emblem.** A new session (or one just `/clear`ed) opens with the lantern emblem and the oath above the prompt, as pictured at the top. It folds away into the everyday HUD on your first prompt.
 
 **Lantern turn words.** *Forged for 1m 12s*, *Charged for 9s*, …
 
