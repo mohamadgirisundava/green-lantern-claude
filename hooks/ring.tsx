@@ -2,7 +2,7 @@ import type { ClientModule } from 'claude-code'
 
 /** What the spinner hands the ring: which animation, and the palette to paint it in. */
 export type RingProps = {
-  kind: 'charging' | 'focusing' | 'flowing' | 'surging'
+  kind: 'charging' | 'focusing' | 'flowing' | 'shaping' | 'surging'
   palette: { deep: string; emerald: string; lantern: string; glow: string; neon: string; white: string }
 }
 
@@ -27,6 +27,9 @@ function ringOf({ kind, palette: p }: RingProps, f: number): Cell {
     }
     case 'flowing':
       return { ch: '⊜', color: p.glow, bold: true }
+    case 'shaping':
+      // A slow pulse while the construct takes shape.
+      return { ch: '⊜', color: Math.floor(f / 3) % 2 ? p.lantern : p.glow, bold: true }
     case 'surging':
       return { ch: '⊜', color: f % 2 ? p.neon : p.white, bold: true }
   }

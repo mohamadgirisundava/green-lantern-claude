@@ -19,7 +19,7 @@ declare module 'claude-code' {
       welcome: boolean
       now: number
       /** The spinner's mode as its ring last reported it (null since the prompt began), and the prompt's roll. */
-      power: { kind: 'charging' | 'focusing' | 'flowing' | 'surging' | null; roll: number }
+      power: { kind: 'charging' | 'focusing' | 'flowing' | 'shaping' | 'surging' | null; roll: number }
     }
   }
 }

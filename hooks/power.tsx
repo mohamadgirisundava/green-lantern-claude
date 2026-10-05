@@ -11,8 +11,8 @@ export type PowerProps = {
 }
 
 /** The modes that show power; charging has none yet. */
-export type PowerKind = 'focusing' | 'flowing' | 'surging'
-export type ActName = 'beam' | 'pour' | 'ripple' | 'glints' | 'blade' | 'chain' | 'bolt' | 'inward' | 'surge'
+export type PowerKind = 'focusing' | 'flowing' | 'shaping' | 'surging'
+export type ActName = 'beam' | 'pour' | 'ripple' | 'glints' | 'sketch' | 'weave' | 'mold' | 'blade' | 'chain' | 'bolt' | 'inward' | 'surge'
 
 /** How many cells the power takes beside the project in the badge row. */
 export const POWER_CELLS = 16
@@ -20,12 +20,13 @@ export const POWER_CELLS = 16
 /** The acts a prompt can roll for each mode. */
 export const ACTS_OF: Record<PowerKind, readonly ActName[]> = {
   flowing: ['beam', 'pour', 'ripple', 'glints'],
+  shaping: ['sketch', 'weave', 'mold'],
   surging: ['blade', 'chain', 'bolt'],
   focusing: ['glints', 'inward', 'surge'],
 }
 
-/** How many frames a mode's act takes before it plays again: 4.8 s writing or thinking, 6.6 s for tools. */
-export const SLOT_OF: Record<PowerKind, number> = { flowing: 44, surging: 60, focusing: 44 }
+/** How many frames a mode's act takes before it plays again: 4.8 s, or 6.6 s while a tool runs. */
+export const SLOT_OF: Record<PowerKind, number> = { flowing: 44, shaping: 44, surging: 60, focusing: 44 }
 
 const STEP_MS = 110
 const CELLS = POWER_CELLS
@@ -39,10 +40,10 @@ const BITS = [
 ]
 // Light levels, dimmest to brightest: deep, emerald, lantern, glow, neon, white.
 type Level = 0 | 1 | 2 | 3 | 4 | 5
-// Writing sloshes; tools boil.
-const ENERGY: Record<PowerKind, number> = { flowing: 1, surging: 1.6, focusing: 1 }
-// Each mode rolls on its own track, so the three don't land in step.
-const TRACK: Record<PowerKind, number> = { flowing: 0, surging: 7919, focusing: 15838 }
+// Writing sloshes, writing a tool call stirs, tools boil.
+const ENERGY: Record<PowerKind, number> = { flowing: 1, shaping: 1.2, surging: 1.6, focusing: 1 }
+// Each mode rolls on its own track, so the modes don't land in step.
+const TRACK: Record<PowerKind, number> = { flowing: 0, shaping: 23757, surging: 7919, focusing: 15838 }
 
 /** A fixed hash to [0, 1): every particle's path, and every roll, follows from a number, so nothing keeps state. */
 function hash(n: number): number {
@@ -76,7 +77,7 @@ type Act = {
   /** How far the act drains the pool into itself, 0 to 1. */
   drain?: (t: number) => number
   /** How far the act lifts the surface at each dot column. */
-  lift?: (t: number) => ((x: number) => number) | null
+  lift?: (t: number, s: number) => ((x: number) => number) | null
 }
 
 // ── Bases: the light that always runs ──────────────────────────────────────────────────────────────────────
@@ -184,6 +185,44 @@ function chainStage(t: number) {
 const RIPPLES = [0, 18]
 const INWARD = [0, 12, 24]
 
+// Sketch: two strokes a slot, each drawn by a pen, held, then erased. The caps each outline can take.
+const SKETCH_STROKE = 22
+const SKETCH_CAPS: [string, string][] = [
+  ['┿', '▷'],
+  ['├', '┤'],
+  ['◁', '▷'],
+  ['╟', '╢'],
+]
+
+/** The weave's stages: strands wound into a cable, held, pulled taut, then unravelled. */
+function weaveStage(t: number) {
+  if (t < 16) return { stage: 'wind', a: t, drain: (t / 16) * 0.8 } as const
+  if (t < 28) return { stage: 'hold', a: t - 16, drain: 0.8 } as const
+  if (t < 33) return { stage: 'taut', a: t - 28, drain: 0.8 } as const
+  if (t < 42) return { stage: 'unravel', a: t - 33, drain: 0.8 * (1 - (t - 33) / 9) } as const
+  return null
+}
+
+/** How far the mold has the pool raised: up over a second, held two, down over a second. */
+const moldRise = (t: number) => (t < 10 ? t / 10 : t < 30 ? 1 : t < 40 ? 1 - (t - 30) / 10 : 0)
+
+/** The slot's mold: where it stands, how wide, and its shape (a block, a dome, or steps). */
+function moldOf(s: number) {
+  const w = 10 + Math.floor(hash(s * 3 + 1) * 12)
+  const x0 = 3 + Math.floor(hash(s * 5 + 2) * (W - w - 3))
+  const shape = (['block', 'dome', 'steps'] as const)[Math.floor(hash(s * 7 + 3) * 3)] ?? 'block'
+  return { x0, w, shape }
+}
+
+/** The mold's height at a dot column, 0 to 1. */
+function moldHeight(m: ReturnType<typeof moldOf>, x: number) {
+  const u = (x - m.x0) / (m.w - 1)
+  if (u < 0 || u > 1) return 0
+  if (m.shape === 'dome') return Math.sin(Math.PI * u)
+  if (m.shape === 'steps') return (Math.floor(u * 2.999) + 1) / 3
+  return 1
+}
+
 const ACTS: Record<ActName, Act> = {
   // Bolts of light leave the badge, a white head over a fading tail, and burst into a star where they land.
   beam: {
@@ -267,6 +306,85 @@ const ACTS: Record<ActName, Act> = {
         const a = t - j
         const h = hash(id * 37 + 9)
         k.glyph(Math.floor((k.kind === 'focusing' ? h * h : h) * CELLS), seq[a] ?? '·', levels[a] ?? 1, a === 2)
+      }
+    },
+  },
+  // A pen draws a dashed outline across the row, it holds, is erased, and the next is drawn elsewhere.
+  sketch: {
+    run(t, s, k) {
+      const stroke = s * 2 + Math.floor(t / SKETCH_STROKE)
+      const a = t % SKETCH_STROKE
+      const length = 7 + Math.floor(hash(stroke * 3 + 1) * 6)
+      const at = Math.floor(hash(stroke * 5 + 2) * (CELLS - length + 1))
+      const [left, right] = SKETCH_CAPS[Math.floor(hash(stroke * 7 + 3) * SKETCH_CAPS.length)] ?? ['├', '┤']
+      const line = (c: number) => (c === 0 ? left : c === length - 1 ? right : '┄')
+      if (a < length) {
+        for (let c = 0; c < a; c++) k.glyph(at + c, line(c), c >= a - 2 ? 2 : 1)
+        k.glyph(at + a, '◇', 5, true) // the pen
+      } else if (a < length + 3) {
+        for (let c = 0; c < length; c++) k.glyph(at + c, line(c), a === length ? 3 : 2, a === length)
+      } else {
+        const erased = (a - length - 3) * 2
+        for (let c = Math.max(0, erased - 1); c < length; c++) k.glyph(at + c, c < erased ? '·' : line(c), c < erased ? 1 : 2)
+      }
+    },
+  },
+  // Two strands wind out of the badge into a cable, a glint runs down it, it pulls taut, then it unravels.
+  weave: {
+    drain: t => weaveStage(t)?.drain ?? 0,
+    run(t, _s, k) {
+      const p = weaveStage(t)
+      if (!p) return
+      const woven = (c: number) => (c % 2 ? '─' : '╳')
+      if (p.stage === 'wind') {
+        for (let c = 0; c < p.a; c++) k.glyph(c, woven(c), c >= p.a - 2 ? 3 : 2, c >= p.a - 2)
+        k.glyph(p.a, p.a % 2 ? '╲' : '╱', 5, true)
+      } else if (p.stage === 'hold') {
+        const glint = (p.a * 2) % (CELLS + 6)
+        for (let c = 0; c < CELLS; c++) {
+          const lit = c === glint || c === glint - 1
+          k.glyph(c, woven(c), lit ? 5 : Math.floor(p.a / 3) % 2 ? 3 : 2, lit)
+        }
+      } else if (p.stage === 'taut') {
+        const from = CELLS - 1 - p.a * 3
+        for (let c = 0; c < CELLS; c++) k.glyph(c, c > from ? '═' : woven(c), c > from ? 4 : 2, c > from)
+      } else {
+        const gone = p.a * 2
+        for (let c = Math.max(0, gone - 2); c < CELLS; c++) {
+          if (c < gone - 1) k.glyph(c, '·', 1)
+          else if (c < gone + 1) k.glyph(c, c % 2 ? '╲' : '╱', 3)
+          else k.glyph(c, '═', 4, true)
+        }
+      }
+    },
+  },
+  // The pool rises into a shape, a block, a dome or steps, holds it with lit edges, and falls back with a splash.
+  mold: {
+    drain: t => 0.6 * moldRise(t),
+    lift(t, s) {
+      const m = moldOf(s)
+      const rise = moldRise(t)
+      return rise ? x => 3.6 * rise * moldHeight(m, x) : null
+    },
+    run(t, s, k) {
+      const m = moldOf(s)
+      const last = m.x0 + m.w - 1
+      if (t >= 4 && t < 34) {
+        // The mold's walls and floor, so the risen pool reads as a shape.
+        for (let y = 0; y < H; y++) {
+          k.put(m.x0, y, 3)
+          k.put(last, y, 3)
+        }
+        for (let x = m.x0; x <= last; x++) k.put(x, H - 1, 2)
+      }
+      if (t >= 10 && t < 30) {
+        const x = m.x0 + (((t - 10) * 2) % (m.w + 6))
+        if (x <= last) k.put(x, H - 1 - Math.round(3 * moldHeight(m, x)), 5) // a shimmer along the top
+      }
+      if (t >= 30 && t < 33) {
+        const up = t - 30
+        k.put(m.x0 - 1, 1 - up, 5)
+        k.put(last + 1, 1 - up, 5)
       }
     },
   },
@@ -410,7 +528,7 @@ export function powerFrame(kind: PowerKind, act: ActName | null, f: number): Cel
       if (cell < 0 || cell >= CELLS) return
       if (level >= (glyphs.get(cell)?.level ?? -1)) glyphs.set(cell, { ch, level, bold })
     },
-    lv: surfaceOf(f, energy, drain, playing?.lift?.(t) ?? null),
+    lv: surfaceOf(f, energy, drain, playing?.lift?.(t, s) ?? null),
     kind,
   }
   if (kind === 'focusing') motes(f, k)

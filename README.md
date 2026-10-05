@@ -8,6 +8,11 @@ A Green Lantern UI for [Claude Code](https://claude.com/claude-code), packaged a
 
 ## Updates
 
+### 0.3.2: Shaping gets its own power
+
+- **Shaping has its own acts.** While Claude writes out a tool call (the command, or the code for an edit), the mode you see most in a coding session, the pool stirs and each prompt rolls a pen sketching outlines `◇┄┄╢`, strands woven into a cable `╳─╳─`, or the pool molded into a block, a dome or steps. Shaping sketches the construct; Constructing forges it.
+- **A roomier demo.** `/lantern-demo` adds the Shaping rows and leaves a blank row between every two, so the rows of light no longer touch.
+
 ### 0.3.1: `/lantern-demo`
 
 - **See every act on demand.** Since each prompt rolls its act at random, `/lantern-demo` opens a pane that plays them all at once, each on its own row. See [Demo](#demo).
@@ -37,11 +42,11 @@ Each prompt rolls its act at random, so any one act is hard to catch on screen. 
 /lantern-demo
 ```
 
-A pane opens with every act the ring can roll, each on its own row under its mode (*Focusing*, *Forging*, *Constructing*) and playing on a loop. Every act comes round within about 7 seconds. It draws with the plugin's real ring and power, in your own terminal, so it's also the easiest way to record them. Run `/lantern-demo` again to close it; the animations stop with the pane.
+A pane opens with every act the ring can roll, each on its own row under its mode (*Focusing*, *Forging*, *Shaping*, *Constructing*) with a blank row between, and playing on a loop. Every act comes round within about 7 seconds. It draws with the plugin's real ring and power, in your own terminal, so it's also the easiest way to record them. Run `/lantern-demo` again to close it; the animations stop with the pane.
 
 <!-- GIF placeholder. Run /lantern-demo, record about 7 seconds of the pane, save it as assets/lantern-demo.gif,
      then replace this comment with:
-![The /lantern-demo pane: every act playing at once, glints, inward ripples and a surge under Focusing; beams, pours, ripples and glints under Forging; a blade, a chain and lightning under Constructing](assets/lantern-demo.gif)
+![The /lantern-demo pane: every act playing at once, glints, inward ripples and a surge under Focusing; beams, pours, ripples and glints under Forging; a sketch, a weave and a mold under Shaping; a blade, a chain and lightning under Constructing](assets/lantern-demo.gif)
 -->
 
 ## What you get
@@ -53,6 +58,7 @@ A pane opens with every act the ring can roll, each on its own row under its mod
 | Sending the request | `◌ ○ ◎ ◉ ⊜`: charging | (none) | |
 | Thinking | `◉`: breathing | Motes of will drifting in toward the badge | Glints `· ✧ ✦`, inward ripples, a surge of motes |
 | Writing | `⊜` | A pool of light sloshing, sparks popping off the crests | Beams `┄─━━◆`, arcs of light poured out, ripples, glints |
+| Writing a tool call | `⊜` pulsing | The pool stirring | A pen sketching outlines `◇┄┄╢`, strands woven into a cable `╳─╳─`, or the pool molded into a block, a dome or steps |
 | Using a tool | `⊜` flickering white-hot | The pool boiling | A blade `┿━━━━▶` forged and shattered, a chain forged link by link, lightning `╱╲╱╲ϟ` |
 
 ![One turn from Enter to done: liquid light sloshes above the ring during "Forging…", flares through "Shaping…" as Claude writes a command, boils during "Constructing…" while it runs, and the turn closes with "Channeled for 14s"](assets/ring-power.gif)

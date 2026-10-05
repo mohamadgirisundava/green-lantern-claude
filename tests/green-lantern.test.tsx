@@ -265,7 +265,7 @@ const ringIn = async (ui: Finder, key: string) => (await ui.find({ type: 'Text',
 const powerIn = async (ui: Finder, key: string) => (await ui.find({ type: 'Text', in: key }))?.text
 
 // Braille, or one of the power's single-width glyphs: never an emoji, which takes two cells.
-const POWER_ROW = /^[⠀-⣿┿┄▷━═▶╳⁘·˙╱╲◆✦✧─ϟ]{16}$/u
+const POWER_ROW = /^[⠀-⣿┿┄▷━═▶╳⁘·˙╱╲◆✦✧─ϟ◇├┤◁╟╢]{16}$/u
 
 /** Claude at work in a mode: the spinner's ring appears and tells the band, which draws the power. */
 async function working(
@@ -370,7 +370,7 @@ test('each mode has its ring and its power, and both move', async ($, on) => {
     ['requesting', 'charging', /^[◌○◎◉⊜]$/],
     ['thinking', 'focusing', /^◉$/],
     ['responding', 'flowing', /^⊜$/],
-    ['tool-input', 'surging', /^⊜$/],
+    ['tool-input', 'shaping', /^⊜$/],
     ['tool-use', 'surging', /^⊜$/],
   ]
   for (const [mode, kind, ring] of cases) {
@@ -411,7 +411,7 @@ test('the power is a pool of light and particles, never a scroll', async ($, on)
   engineSpinner(on)
   await start($)
 
-  for (const [mode, kind] of [['responding', 'flowing'], ['tool-use', 'surging']] as const) {
+  for (const [mode, kind] of [['responding', 'flowing'], ['tool-input', 'shaping'], ['tool-use', 'surging']] as const) {
     const rows = await frames($, mode, kind, 6)
     for (const row of rows) {
       expect(row).toMatch(POWER_ROW)
@@ -450,7 +450,7 @@ test('the power looks the same at every effort', async ($, on) => {
     for await (const _ of step);
     return frames($, mode, kind, 12)
   }
-  for (const [mode, kind] of [['thinking', 'focusing'], ['responding', 'flowing'], ['tool-use', 'surging']] as const) {
+  for (const [mode, kind] of [['thinking', 'focusing'], ['responding', 'flowing'], ['tool-input', 'shaping'], ['tool-use', 'surging']] as const) {
     const low = await at('low', mode, kind)
     expect(await at('xhigh', mode, kind)).toEqual(low)
     expect(await at('max', mode, kind)).toEqual(low)
@@ -508,7 +508,7 @@ test('every act a mode can roll comes up, each about as often, whatever came bef
 
 test('every act draws its own light over the base, in single-width cells', () => {
   // The glyph acts show their mark; the dot acts change the base's dots.
-  const marks: Record<string, string> = { beam: '◆', glints: '✦', blade: '▶', bolt: 'ϟ' }
+  const marks: Record<string, string> = { beam: '◆', glints: '✦', blade: '▶', bolt: 'ϟ', sketch: '◇', weave: '╳' }
   for (const [kind, acts] of Object.entries(ACTS_OF) as [PowerKind, readonly ActName[]][]) {
     for (const act of acts) {
       let own = false
@@ -560,12 +560,15 @@ test('/lantern-demo plays every act in a pane, each fixed, never rolled; run aga
   expect((await demo($)).text).toMatch(/^Opened the Lantern power demo/)
   const ui = await $.ui.mount({ plugin: 'green-lantern', surface: 'terminal', ...DEMO })
   // Three modes under their spinner words, a ring for each, and a row of power for every act it can roll.
-  for (const word of ['Focusing', 'Forging', 'Constructing']) expect(await ui.find({ type: 'Text', text: new RegExp(`^${word} *$`) })).toBeDefined()
+  for (const word of ['Focusing', 'Forging', 'Shaping', 'Constructing']) expect(await ui.find({ type: 'Text', text: new RegExp(`^${word} *$`) })).toBeDefined()
   const clients = await ui.findAll({ type: 'Client' })
   const keys = clients.map(c => c.key ?? '')
-  expect(keys.filter(k => k.startsWith('demo-ring-'))).toEqual(['demo-ring-focusing', 'demo-ring-flowing', 'demo-ring-surging'])
-  // In the order a turn goes: thinking, writing, tools.
-  const rows = (['focusing', 'flowing', 'surging'] as const).flatMap(kind => ACTS_OF[kind].map(act => [kind, act] as const))
+  expect(keys.filter(k => k.startsWith('demo-ring-'))).toEqual(['demo-ring-focusing', 'demo-ring-flowing', 'demo-ring-shaping', 'demo-ring-surging'])
+  // In the order a turn goes: thinking, writing, writing a tool call, running it.
+  const rows = (['focusing', 'flowing', 'shaping', 'surging'] as const).flatMap(kind => ACTS_OF[kind].map(act => [kind, act] as const))
+  // A blank row between every two, so the rows of light don't touch.
+  const lines = await ui.findAll({ type: 'Text', text: /^$/ })
+  expect(lines.length).toBe(rows.length - 1)
   expect(keys.filter(k => k.startsWith('demo-power-'))).toEqual(rows.map(([kind, act]) => `demo-power-${kind}-${act}`))
   for (const [kind, act] of rows) {
     const client = clients.find(c => c.key === `demo-power-${kind}-${act}`)?.props as { props?: { kind?: string; act?: string } } | undefined
