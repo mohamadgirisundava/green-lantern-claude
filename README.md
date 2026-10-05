@@ -6,16 +6,35 @@ A Green Lantern UI for [Claude Code](https://claude.com/claude-code), packaged a
 
 ![A fresh Claude Code session in the Green Lantern theme: the lantern emblem drawn in green blocks beside "Green Lantern Corps · Sector 2814", the oath, and the model, effort and project, with the usage bars below](assets/emblem.png)
 
+## Updates
+
+### 0.3.0: the power moves to the badge, and every prompt rolls its act
+
+<!-- GIF placeholder. Record one turn in 0.3.0 (Focusing → Forging → Constructing), save it as assets/power-badge.gif,
+     then replace this comment with:
+![One turn in 0.3.0: the ring breathes on the spinner glyph while the power flows out of the badge row beside the project name, a blade forged during "Constructing…"](assets/power-badge.gif)
+-->
+
+- **The power rides the badge row.** While Claude works, the power flows out of the HUD's badge, two cells after your project name, instead of sitting at the far end of the spinner row. It's in the same place at every terminal width. The ring stays on the spinner glyph.
+- **Every prompt rolls an act.** Each mode keeps a base light running, and every prompt picks one act per mode at random, which then plays for the whole prompt:
+  - Thinking: glints `· ✧ ✦`, inward ripples, or a surge of motes.
+  - Writing: beams `┄─━━◆`, arcs of light poured out, ripples, or glints.
+  - Using a tool: a hard-light blade `┿━━━━▶` forged and shattered, a chain forged link by link, or lightning `╱╲╱╲ϟ`.
+- **Hard-light glyphs.** The acts mix box-drawing strokes and stars with the braille dots. Every one is single-width, so nothing in Claude Code's rows shifts.
+- **A pool, not a meter.** Writing and tools draw the light as a bright surface over a twinkling body, instead of filled columns that read like a volume meter.
+- **Twice the width.** The power is 16 cells wide (32×4 dots), up from 8.
+- **Same cost.** The animation still runs only while Claude works, on the same 110 ms frame clock.
+
 ## What you get
 
-**Ring-power spinner.** The ring takes the place of the spinner glyph, and its power moves at the far end of the same row (on the row above in terminals narrower than 100 columns). It changes with what Claude is doing:
+**Ring-power spinner.** The ring takes the place of the spinner glyph. Its power rides the HUD band below, beside your project name, flowing out of the badge into the free row while Claude works. Each mode keeps a base light running, and every prompt rolls one act per mode at random, which then plays for the whole prompt:
 
-| Claude is… | Ring | Power |
-|---|---|---|
-| Sending the request | `◌ ○ ◎ ◉ ⊜`: charging | (none) |
-| Thinking | `◉`: breathing | Motes of will drifting in toward the ring |
-| Writing | `⊜` | Liquid light sloshing, sparks popping off the crests |
-| Using a tool | `⊜` flickering white-hot | The liquid boiling |
+| Claude is… | Ring | Power: base | Acts a prompt can roll |
+|---|---|---|---|
+| Sending the request | `◌ ○ ◎ ◉ ⊜`: charging | (none) | |
+| Thinking | `◉`: breathing | Motes of will drifting in toward the badge | Glints `· ✧ ✦`, inward ripples, a surge of motes |
+| Writing | `⊜` | A pool of light sloshing, sparks popping off the crests | Beams `┄─━━◆`, arcs of light poured out, ripples, glints |
+| Using a tool | `⊜` flickering white-hot | The pool boiling | A blade `┿━━━━▶` forged and shattered, a chain forged link by link, lightning `╱╲╱╲ϟ` |
 
 ![One turn from Enter to done: liquid light sloshes above the ring during "Forging…", flares through "Shaping…" as Claude writes a command, boils during "Constructing…" while it runs, and the turn closes with "Channeled for 14s"](assets/ring-power.gif)
 
@@ -61,8 +80,8 @@ In `~/.claude/settings.json`:
 ## Requirements and caveats
 
 - **Claude Code with plugin mods (function hooks).** Tested on Claude Code 2.1.288. The mod API is early access and may change between releases. If something breaks after an upgrade, please open an issue.
-- **Spinner layout.** The ring layer sits over Claude Code's own spinner row and relies on its current layout: the glyph in the first column, room at the end of the verb row (the power takes the last 8 columns), and, below 100 columns, an empty row above the verb.
-- **Font.** Your terminal font needs braille characters (U+2800–U+28FF) and `⊜`. Most modern monospace fonts have them.
+- **Spinner layout.** The ring sits over Claude Code's own spinner glyph and relies on its current layout: the glyph in the first column of the verb row. The power needs 18 free columns after the project name in the badge row; a narrower band leaves it out.
+- **Font.** Your terminal font needs braille characters (U+2800–U+28FF), box drawing (`━ ┄ ═ ╱ ╲`) and a few symbols (`⊜ ◆ ▶ ✦ ✧ ϟ`). All are single-width; most modern monospace fonts have them or fall back cleanly.
 - **Surfaces.** The animations draw in the terminal and the desktop app. Elsewhere you get the still version.
 - **Cost.** The animation only runs while Claude is working, on Claude Code's own frame clock. Idle cost is a 30-second timer.
 
@@ -79,7 +98,8 @@ python3 scripts/check-theme.py   # after each Claude Code upgrade: theme keys it
 | File | What it owns |
 |---|---|
 | `hooks/register.tsx` | The HUD band, battery bars, emblem, spinner hook, turn words |
-| `hooks/ring.tsx` | The ring and its power: a 16×4 braille canvas on the terminal's frame clock |
+| `hooks/ring.tsx` | The ring over the spinner glyph; it tells the band which mode it shows |
+| `hooks/power.tsx` | The power beside the project: a 32×4 braille canvas plus glyphs, its base and the rolled act |
 | `themes/green-lantern.json` | The color overrides (base `dark`) |
 | `tests/green-lantern.test.tsx` | The behaviour, run by `claude plugin test` |
 
