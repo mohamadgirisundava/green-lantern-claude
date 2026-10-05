@@ -58,41 +58,53 @@ async function respond($: Engine, effort?: 'xhigh') {
   for await (const _ of step);
 }
 
-/** The text of the usage line. */
+/** The text of the compact usage line. */
 const hairline = async (ui: { find: (query: { type: string; text: RegExp }) => Promise<{ text: string } | undefined> }) =>
-  (await ui.find({ type: 'Text', text: /^› / }))?.text
+  (await ui.find({ type: 'Text', text: /^5h .*│/ }))?.text
+/** A band too short for the panel: the header and the compact line. */
+const SHORT = { ...BAND, props: { ...BAND.props, maxRows: 5 } } as const
 
-test('draws the model badge and the usage hairline, then counts a 1h cache down', async ($, on) => {
+test('draws the panel, then counts a 1h cache down', async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
   answerSession(on, { rateLimits: SUBSCRIPTION, settings: { effortLevel: 'high' }, model: 'opus' })
   await start($)
 
   for (const surface of SURFACES) {
     const ui = await $.ui.mount({ plugin: 'green-lantern', surface, ...BAND })
-    // Before the first turn: the settings' effort, the alias as /model shows it, no cache yet.
-    expect(await ui.find({ type: 'Box', text: /^\[Opus high\] │ cv$/ })).toBeDefined()
-    // Plenty left is lantern green; a quarter or less fades to a lighter glow.
-    expect((await ui.find({ type: 'Text', text: /^ 71%$/ }))?.props.color).toBe('#3DDC84')
-    expect((await ui.find({ type: 'Text', text: /^ 18%$/ }))?.props.color).toBe('#7DFFAF')
+    // A rounded card. Before the first turn: the settings' effort, the alias as /model shows it, no cache yet.
+    expect((await ui.findAll({ type: 'Box' })).some(b => b.props.borderStyle === 'round')).toBe(true)
+    expect(await ui.find({ type: 'Text', text: /^⊜ Opus  ·  high$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^cv$/ })).toBeDefined()
     // Battery logic: the bars show the charge left (29% used is 71% left; 82% used is 18% left).
-    expect(await hairline(ui)).toBe('› 5h ▰▰▰▰▰▰▱▱ 71% ↻10m  › 7d ▰▱▱▱▱▱▱▱ 18% ↻16h10m  › 59k/1.0M')
+    // Plenty left is lantern green; a quarter or less fades to a lighter glow.
+    expect((await ui.find({ type: 'Text', text: /^71%$/ }))?.props.color).toBe('#3DDC84')
+    expect((await ui.find({ type: 'Text', text: /^18%$/ }))?.props.color).toBe('#7DFFAF')
+    expect(await ui.find({ type: 'Text', text: /^→ resets in 10m$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^→ resets in 16h 10m$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^59k \/ 1\.0M$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /cache/ })).toBeUndefined()
     await ui.unmount()
+
+    // Too short for the card: the same figures on one spaced line.
+    const short = await $.ui.mount({ plugin: 'green-lantern', surface, ...SHORT })
+    expect(await hairline(short)).toBe('5h ▰▰▰▰▰▰▱▱ 71%  → 10m   │   7d ▰▱▱▱▱▱▱▱ 18%  → 16h 10m   │   59k / 1.0M')
+    await short.unmount()
   }
 
   // A main-thread turn names the resolved model and effort and starts the cache countdown.
   await respond($, 'xhigh')
   await clock.advance(61_000)
   const ui = await $.ui.mount({ plugin: 'green-lantern', surface: 'terminal', ...BAND })
-  expect(await ui.find({ type: 'Box', text: /^\[Opus 5\.5 xhigh\] │ cv$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^⊜ Opus 5\.5  ·  xhigh$/ })).toBeDefined()
   // Effort is a power ramp: xhigh glows.
   expect((await ui.find({ type: 'Text', text: /^xhigh$/ }))?.props.color).toBe('#7DFFAF')
-  expect(await hairline(ui)).toMatch(/› cache 59m$/)
+  expect(await ui.find({ type: 'Text', text: /^○ cache 59m$/ })).toBeDefined()
 
   // Seconds only in the last two minutes.
   await clock.advance(57 * MIN)
-  expect(await hairline(ui)).toMatch(/› cache 1m59s$/)
+  expect(await ui.find({ type: 'Text', text: /^○ cache 1m59s$/ })).toBeDefined()
   await clock.advance(2 * MIN)
-  expect(await hairline(ui)).toMatch(/› cache expired$/)
+  expect(await ui.find({ type: 'Text', text: /^○ cache expired$/ })).toBeDefined()
 })
 
 test('the promptCacheTtl setting wins over the automatic TTL', async ($, on) => {
@@ -103,9 +115,9 @@ test('the promptCacheTtl setting wins over the automatic TTL', async ($, on) => 
 
   await clock.advance(61_000)
   const ui = await $.ui.mount({ plugin: 'green-lantern', surface: 'terminal', ...BAND })
-  expect(await hairline(ui)).toMatch(/› cache 4m$/)
+  expect(await ui.find({ type: 'Text', text: /^○ cache 4m$/ })).toBeDefined()
   await clock.advance(2 * MIN)
-  expect(await hairline(ui)).toMatch(/› cache 1m59s$/)
+  expect(await ui.find({ type: 'Text', text: /^○ cache 1m59s$/ })).toBeDefined()
 })
 
 test('CLAUDE_CODE_PROMPT_CACHE_TTL wins over the setting', async ($, on) => {
@@ -116,7 +128,7 @@ test('CLAUDE_CODE_PROMPT_CACHE_TTL wins over the setting', async ($, on) => {
 
   await clock.advance(61_000)
   const ui = await $.ui.mount({ plugin: 'green-lantern', surface: 'terminal', ...BAND })
-  expect(await hairline(ui)).toMatch(/› cache 59m$/)
+  expect(await ui.find({ type: 'Text', text: /^○ cache 59m$/ })).toBeDefined()
 })
 
 test('steps back while a survey holds the band', async ($, on) => {
@@ -294,7 +306,7 @@ test('on a wide terminal the power rides the far end of the verb row; narrower, 
   const layers = (await ui.findAll({ type: 'Box' })).filter(b => b.props.position === 'absolute').map(b => b.props)
   expect(layers).toEqual([
     { position: 'absolute', top: 1, left: 0 },
-    { position: 'absolute', top: 1, left: 112 },
+    { position: 'absolute', bottom: 0, left: 112 },
   ])
   const clients = await ui.findAll({ type: 'Client' })
   expect(clients.map(c => c.key)).toEqual(['ring-focusing', 'power-focusing'])
@@ -388,9 +400,9 @@ test('a fresh session opens with the Lantern emblem and the oath, until the firs
     expect(await ui.find({ type: 'Text', text: /^ ▀+ $/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /In brightest day, in blackest night,/ })).toBeDefined()
     // The model line moves into the emblem's side panel; the usage line stays below.
-    expect(await ui.find({ type: 'Text', text: /^Opus 5\.5 · xhigh · cv$/ })).toBeDefined()
-    expect(await ui.find({ type: 'Box', text: /^\[Opus/ })).toBeUndefined()
-    expect(await hairline(ui)).toMatch(/^› 5h/)
+    expect(await ui.find({ type: 'Text', text: /^Opus 5\.5  ·  xhigh  ·  cv$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^⊜ Opus/ })).toBeUndefined()
+    expect(await hairline(ui)).toMatch(/^5h /)
     await ui.unmount()
   }
 
@@ -398,7 +410,7 @@ test('a fresh session opens with the Lantern emblem and the oath, until the firs
   await $.prompt.submit({ text: 'hi', wait: false, origin: { kind: 'composer' } })
   const after = await $.ui.mount({ plugin: 'green-lantern', surface: 'terminal', ...BAND })
   expect(await welcomeShown(after)).toBe(false)
-  expect(await after.find({ type: 'Box', text: /^\[Opus 5\.5 xhigh\] │ cv$/ })).toBeDefined()
+  expect(await after.find({ type: 'Text', text: /^⊜ Opus 5\.5  ·  xhigh$/ })).toBeDefined()
   await after.unmount()
 
   // /clear is a clean slate: the emblem comes back.
@@ -421,7 +433,7 @@ test('the emblem steps aside when the band cannot fit it', async ($, on) => {
   await start($)
   const short = await $.ui.mount({ plugin: 'green-lantern', surface: 'terminal', ...BAND, props: { ...BAND.props, maxRows: 5 } })
   expect(await welcomeShown(short)).toBe(false)
-  expect(await short.find({ type: 'Box', text: /^\[Opus/ })).toBeDefined()
+  expect(await short.find({ type: 'Text', text: /^⊜ Opus/ })).toBeDefined()
   await short.unmount()
   const narrow = await $.ui.mount({ plugin: 'green-lantern', surface: 'terminal', ...BAND, props: { ...BAND.props, bodyColumns: 30 } })
   expect(await welcomeShown(narrow)).toBe(false)
@@ -493,10 +505,10 @@ test('the limits read as charge left, fading from lantern green to pale as they 
   await start($)
 
   const cases: [number, string, string][] = [
-    [0, '› 5h ▰▰▰▰▰▰▰▰ 100% ↻10m', '#3DDC84'],
-    [75, '› 5h ▰▰▱▱▱▱▱▱ 25% ↻10m', '#7DFFAF'],
-    [90, '› 5h ▰▱▱▱▱▱▱▱ 10% ↻10m', '#E0FFEC'],
-    [100, '› 5h ⚠ ↻10m', '#E0FFEC'],
+    [0, '5h ▰▰▰▰▰▰▰▰ 100%  → 10m', '#3DDC84'],
+    [75, '5h ▰▰▱▱▱▱▱▱ 25%  → 10m', '#7DFFAF'],
+    [90, '5h ▰▱▱▱▱▱▱▱ 10%  → 10m', '#E0FFEC'],
+    [100, '5h ⚠  → 10m', '#E0FFEC'],
   ]
   for (const [used, line, color] of cases) {
     await $.session.measure({
@@ -504,7 +516,7 @@ test('the limits read as charge left, fading from lantern green to pale as they 
       rateLimits: [{ kind: 'five_hour', percentUsed: used, resetsAt: new Date(NOW + 10 * MIN).toISOString() }],
       changed: ['rateLimits'],
     })
-    const ui = await $.ui.mount({ plugin: 'green-lantern', surface: 'terminal', ...BAND })
+    const ui = await $.ui.mount({ plugin: 'green-lantern', surface: 'terminal', ...SHORT })
     expect(await hairline(ui)).toMatch(new RegExp(`^${line.replace(/[[\]()]/g, '\\$&')}`))
     const charge = used >= 100 ? /^⚠/ : new RegExp(`^ ${100 - used}%$`)
     expect((await ui.find({ type: 'Text', text: charge }))?.props.color).toBe(color)

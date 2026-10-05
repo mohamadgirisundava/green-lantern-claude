@@ -50,6 +50,11 @@ const WELCOME_MIN_COLUMNS = 40
 // The word that closes a turn, in place of the engine's `Baked for 3s`.
 const TURN_WORDS = ['Forged', 'Charged', 'Constructed', 'Patrolled', 'Channeled', 'Recharged', 'Shone', 'Willed']
 const BAR_WIDTH = 8
+// The everyday panel: a rounded card with a header, a rule and one meter per row. It needs PANEL_MIN_COLUMNS
+// and its own height in rows; otherwise the band falls back to the single compact line.
+const PANEL_BAR_WIDTH = 14
+const PANEL_MAX_COLUMNS = 64
+const PANEL_MIN_COLUMNS = 54
 const MIN = 60_000
 // Under this the cache countdown shows seconds on a 1s clock; above it, minutes on the 30s clock.
 const SECONDS_UNDER_MS = 2 * MIN
@@ -101,7 +106,7 @@ export function formatTokens(n: number): string {
   return String(n)
 }
 
-/** Time until a window resets: `10m`, `16h10m`, `3d12h`; empty once past. */
+/** Time until a window resets: `10m`, `16h 10m`, `3d 12h`; empty once past. */
 export function untilReset(ms: number): string {
   if (ms <= 0) return ''
   const mins = Math.ceil(ms / 60_000)
@@ -109,9 +114,9 @@ export function untilReset(ms: number): string {
   const hours = Math.floor(mins / 60)
   if (hours >= 24) {
     const days = Math.floor(hours / 24)
-    return hours % 24 ? `${days}d${hours % 24}h` : `${days}d`
+    return hours % 24 ? `${days}d ${hours % 24}h` : `${days}d`
   }
-  return mins % 60 ? `${hours}h${mins % 60}m` : `${hours}h`
+  return mins % 60 ? `${hours}h ${mins % 60}m` : `${hours}h`
 }
 
 /** `47m` while minutes are what matter, `1m42s` near the end, `expired` after. */
@@ -274,12 +279,12 @@ export const register: Register = on => {
     const columns = e.viewport?.columns ?? 0
     if (e.surface === 'terminal' && columns >= INLINE_FROM_COLUMNS) {
       // A region repaints whole on every frame, so neither spans the engine's words: the ring keeps the glyph's
-      // cell and the power the last cells of the row. Charging has no power yet.
+      // cell and the power the last cells of the block's bottom row, its bottom-right corner. Charging has no power yet.
       const power =
         ring.kind === 'charging'
           ? []
           : [
-              <Box position="absolute" top={1} left={columns - POWER_CELLS}>
+              <Box position="absolute" bottom={0} left={columns - POWER_CELLS}>
                 <Client key={`power-${ring.kind}`} module="./ring.tsx" props={{ kind: ring.kind, part: 'power', palette } satisfies RingProps} />
               </Box>,
             ]
@@ -323,123 +328,199 @@ export const register: Register = on => {
 
     const { Box, Text } = $.ui.resolve(e)
     const label = (text: string) => <Text color={GL.muted}>{text}</Text>
+    const blank = () => <Text>{''}</Text>
+    const effortText = (effort: string) => (
+      <Text bold color={EFFORT_COLOR[effort] ?? GL.lantern}>
+        {effort}
+      </Text>
+    )
 
-    const segments = []
-    for (const [kind, short] of WINDOWS) {
+    // What every layout shows, read once: each window's charge left and reset, the context, the cache.
+    const windows = WINDOWS.flatMap(([kind, short]) => {
       const w = u?.rateLimits.find(r => r.kind === kind)
-      if (!w) continue
+      if (!w) return []
       // Battery logic, like the ring's charge: the bar shows what's left of the window and drains as it's used.
       const left = Math.max(0, 100 - Math.round(w.percentUsed))
       const reset = w.resetsAt ? untilReset(Date.parse(w.resetsAt) - t) : ''
-      if (left === 0) {
-        segments.push(
-          <Text>
-            {label(`${short} `)}
-            <Text color={GL.white}>{reset ? `⚠ ↻${reset}` : '⚠'}</Text>
-          </Text>,
-        )
-        continue
-      }
-      const color = chargeColor(left)
-      const filled = Math.round((left / 100) * BAR_WIDTH)
-      segments.push(
+      return [{ short, left, reset, color: left === 0 ? GL.white : chargeColor(left) }]
+    })
+    const context = u && u.window > 0 ? { tokens: u.tokens ?? 0, window: u.window } : null
+    const cache = last !== null ? cacheCountdown(last + (ttl ?? autoTtl(u)) - t) : null
+
+    const bar = (fill: number, width: number, color: string) => {
+      const filled = Math.max(0, Math.min(width, Math.round(fill * width)))
+      return (
         <Text>
-          {label(`${short} `)}
           <Text color={color}>{'▰'.repeat(filled)}</Text>
-          <Text color={GL.deep}>{'▱'.repeat(BAR_WIDTH - filled)}</Text>
-          <Text color={color}> {left}%</Text>
-          {reset ? label(` ↻${reset}`) : ''}
-        </Text>,
+          <Text color={GL.deep}>{'▱'.repeat(width - filled)}</Text>
+        </Text>
       )
-    }
-    if (u && u.window > 0) {
-      segments.push(
-        <Text color={GL.lantern}>
-          {formatTokens(u.tokens ?? 0)}/{formatTokens(u.window)}
-        </Text>,
-      )
-    }
-    if (last !== null) {
-      segments.push(label(`cache ${cacheCountdown(last + (ttl ?? autoTtl(u)) - t)}`))
     }
 
-    // The badge: the effort holds still in its level's color; the spinner above carries the animation.
-    const badge = [
-      <Text color={GL.lantern}>
-        [{modelName(m.id)}
-        {m.effort ? ' ' : ''}
-      </Text>,
-    ]
-    if (m.effort) {
-      badge.push(
-        <Text bold color={EFFORT_COLOR[m.effort] ?? GL.lantern}>
-          {m.effort}
+    // The panel: one aligned meter per row, with air between the columns.
+    const meter = (name: string, gauge: unknown, value: unknown, note: unknown) => (
+      <Box flexDirection="row" columnGap={2}>
+        <Box width={3}>{label(name)}</Box>
+        {gauge}
+        <Box width={11}>{value}</Box>
+        {note}
+      </Box>
+    )
+    const meters = windows.map(w =>
+      meter(
+        w.short,
+        bar(w.left / 100, PANEL_BAR_WIDTH, w.color),
+        <Text bold color={w.color}>
+          {w.left === 0 ? '⚠ empty' : `${w.left}%`}
+        </Text>,
+        w.reset ? (
+          <Text>
+            <Text color={GL.emerald}>→ </Text>
+            {label('resets in ')}
+            <Text color={GL.white}>{w.reset}</Text>
+          </Text>
+        ) : (
+          blank()
+        ),
+      ),
+    )
+    if (context) {
+      const share = context.tokens / context.window
+      // The context fills as the session goes on: it pales toward white as it nears the window.
+      const color = share >= 0.9 ? GL.white : share >= 0.75 ? GL.glow : GL.lantern
+      meters.push(
+        meter(
+          'ctx',
+          bar(share, PANEL_BAR_WIDTH, color),
+          <Text>
+            <Text bold color={color}>
+              {formatTokens(context.tokens)}
+            </Text>
+            {label(` / ${formatTokens(context.window)}`)}
+          </Text>,
+          cache ? (
+            <Text>
+              <Text color={GL.emerald}>○ </Text>
+              {label('cache ')}
+              <Text color={cache === 'expired' ? GL.muted : GL.white}>{cache}</Text>
+            </Text>
+          ) : (
+            blank()
+          ),
+        ),
+      )
+    }
+
+    const columns = e.props.bodyColumns
+    const panelWidth = Math.min(columns, PANEL_MAX_COLUMNS)
+    const header = (
+      <Box flexDirection="row" justifyContent="space-between">
+        <Text>
+          <Text color={GL.neon}>⊜ </Text>
+          <Text bold color={GL.lantern}>
+            {modelName(m.id)}
+          </Text>
+          {m.effort ? label('  ·  ') : ''}
+          {m.effort ? effortText(m.effort) : ''}
+        </Text>
+        {p ? <Text color={GL.muted}>{p}</Text> : blank()}
+      </Box>
+    )
+    const panel = (withHeader: boolean) => {
+      const body = withHeader ? [header, <Text color={GL.deep}>{'─'.repeat(panelWidth - 4)}</Text>, ...meters] : meters
+      return (
+        <Box flexDirection="column" borderStyle="round" borderColor={GL.deep} paddingX={1} width={panelWidth}>
+          {...body}
+        </Box>
+      )
+    }
+    // Two border rows, the meters, and the header with its rule.
+    const panelFits = (withHeader: boolean, rowsAbove = 0) =>
+      meters.length > 0 &&
+      columns >= PANEL_MIN_COLUMNS &&
+      e.props.maxRows >= rowsAbove + 2 + meters.length + (withHeader ? 2 : 0)
+
+    // The compact line, for a band too short or narrow for the panel: the same figures, spaced and divided.
+    const compactSegments = windows.map(w => (
+      <Text>
+        {label(`${w.short} `)}
+        {w.left === 0 ? (
+          <Text color={GL.white}>⚠</Text>
+        ) : (
+          <Text>
+            {bar(w.left / 100, BAR_WIDTH, w.color)}
+            <Text color={w.color}> {w.left}%</Text>
+          </Text>
+        )}
+        {w.reset ? label(`  → ${w.reset}`) : ''}
+      </Text>
+    ))
+    if (context) {
+      compactSegments.push(
+        <Text color={GL.lantern}>
+          {formatTokens(context.tokens)} / {formatTokens(context.window)}
         </Text>,
       )
     }
-    badge.push(<Text color={GL.lantern}>]</Text>)
-    if (p) {
-      badge.push(
-        label(' │ '),
-        <Text color={GL.muted} underline>
-          {p}
-        </Text>,
-      )
-    }
-    const rows = [<Box flexDirection="row">{...badge}</Box>]
-    if (fresh && e.props.maxRows >= WELCOME_ROWS && e.props.bodyColumns >= WELCOME_MIN_COLUMNS) {
-      // The welcome takes the badge row's place: the model line moves into the emblem's side panel.
+    if (cache) compactSegments.push(label(`○ cache ${cache}`))
+    const compact = (
+      <Text wrap="truncate">
+        {...compactSegments.map((segment, i) => (
+          <Text>
+            {i === 0 ? '' : label('   │   ')}
+            {segment}
+          </Text>
+        ))}
+      </Text>
+    )
+
+    if (fresh && e.props.maxRows >= WELCOME_ROWS && columns >= WELCOME_MIN_COLUMNS) {
+      // The welcome takes the header's place: the model line moves into the emblem's side panel.
       const side = [
         <Text>
           <Text bold color={GL.lantern}>
             GREEN LANTERN CORPS
           </Text>
-          {label(' · Sector 2814')}
+          {label('  ·  Sector 2814')}
         </Text>,
-        <Text>{''}</Text>,
-        <Text color={GL.glow}>In brightest day, in blackest night,</Text>,
-        <Text color={GL.glow}>no evil shall escape my sight.</Text>,
-        <Text>{''}</Text>,
+        blank(),
+        <Text italic color={GL.glow}>
+          In brightest day, in blackest night,
+        </Text>,
+        <Text italic color={GL.glow}>
+          no evil shall escape my sight.
+        </Text>,
+        blank(),
         <Text>
           <Text color={GL.lantern}>{modelName(m.id)}</Text>
-          {m.effort ? label(' · ') : ''}
-          {m.effort ? (
-            <Text bold color={EFFORT_COLOR[m.effort] ?? GL.lantern}>
-              {m.effort}
-            </Text>
-          ) : (
-            ''
-          )}
-          {p ? label(` · ${p}`) : ''}
+          {m.effort ? label('  ·  ') : ''}
+          {m.effort ? effortText(m.effort) : ''}
+          {p ? label(`  ·  ${p}`) : ''}
         </Text>,
       ]
-      rows.splice(
-        0,
-        1,
-        ...EMBLEM_ART.map(([art, color], i) => (
-          <Box flexDirection="row">
-            <Text bold color={color}>
-              {art}
-            </Text>
-            <Text>{'   '}</Text>
-            {side[i] ?? <Text>{''}</Text>}
-          </Box>
-        )),
-      )
-    }
-    if (segments.length > 0) {
-      rows.push(
-        <Text wrap="truncate">
-          {...segments.map((segment, i) => (
-            <Text>
-              {label(i === 0 ? '› ' : '  › ')}
-              {segment}
-            </Text>
-          ))}
-        </Text>,
+      const emblem = EMBLEM_ART.map(([art, color], i) => (
+        <Box flexDirection="row">
+          <Text bold color={color}>
+            {art}
+          </Text>
+          <Text>{'    '}</Text>
+          {side[i] ?? blank()}
+        </Box>
+      ))
+      const below = panelFits(false, WELCOME_ROWS) ? panel(false) : compactSegments.length > 0 ? compact : null
+      return (
+        <Box flexDirection="column">
+          {...emblem}
+          {/* A space, not blank(): an empty Text on its own collapses to no row at all. */}
+          <Text>{' '}</Text>
+          {...(below ? [below] : [])}
+        </Box>
       )
     }
 
+    if (panelFits(true)) return panel(true)
+    const rows = [header]
+    if (compactSegments.length > 0) rows.push(compact)
     return <Box flexDirection="column">{...rows}</Box>
   })
 }
