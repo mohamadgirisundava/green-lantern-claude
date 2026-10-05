@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, SessionContextUsage, SessionRateLimit, Timer } from 'claude-code'
 
 import type { HudRateLimit, HudUsage } from '../types'
-import { POWER_CELLS, type PowerProps } from './power'
+import { ACTS_OF, POWER_CELLS, type ActName, type PowerKind, type PowerProps } from './power'
 import type { RingProps } from './ring'
 
 // Emerald Willpower: the palette of ~/.claude/themes/green-lantern.json. The HUD stays all green:
@@ -43,6 +43,26 @@ const PALETTE: RingProps['palette'] = {
 }
 // The power sits this many cells after the project in the badge row.
 const POWER_GAP = 2
+// /lantern-demo: a pane playing every act, each fixed, under the spinner word of its mode.
+const DEMO = 'lantern-demo'
+const DEMO_MODES: [PowerKind, string][] = [
+  ['focusing', 'Focusing'],
+  ['flowing', 'Forging'],
+  ['surging', 'Constructing'],
+]
+const ACT_NAMES: Record<ActName, string> = {
+  beam: 'Beam',
+  pour: 'Pour',
+  ripple: 'Ripple',
+  glints: 'Glints',
+  blade: 'Blade',
+  chain: 'Chain',
+  bolt: 'Bolt',
+  inward: 'Inward ripple',
+  surge: 'Surge',
+}
+const DEMO_LABEL = 13
+const DEMO_NAME = 15
 // A fresh session's welcome: the emblem (a ring held between two bars), lit neon at the top down to
 // emerald at the base, beside the oath. It needs WELCOME_ROWS rows above the usage line and room for the art.
 const EMBLEM_ART: [string, string][] = [
@@ -192,6 +212,7 @@ async function refresh($: EngineInterface) {
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
+    await $.command.register({ name: DEMO, description: 'Play every ring-power act in a pane, to look at or record' })
     await refresh($)
     // A reload re-runs this: only a session with no prompts yet gets the welcome.
     const fresh = (await $.session.turns()) === 0
@@ -248,6 +269,46 @@ export const register: Register = on => {
     const kind = e.component === 'Spinner' ? Object.values(RING).find(r => e.element === `ring-${r.kind}`)?.kind : undefined
     if (kind && (await read($, power)).kind !== kind) await update($, power, p => ({ ...p, kind }))
     return next(e)
+  })
+
+  // The demo toggles: random rolls make an act hard to catch on screen, so this plays each one on demand.
+  on('command.run', { command: DEMO }, async $ => {
+    if ((await $.ui.panes()).some(pane => pane.id === DEMO)) {
+      await $.ui.close({ id: DEMO })
+      return { text: 'Closed the Lantern power demo.' }
+    }
+    const rows = Object.values(ACTS_OF).reduce((n, acts) => n + acts.length, 0) + DEMO_MODES.length - 1
+    await $.ui.open({ id: DEMO, title: 'Lantern power', rows, columns: DEMO_LABEL + 3 + DEMO_NAME + POWER_CELLS })
+    return { text: 'Opened the Lantern power demo: every act the ring can roll, playing on a loop. Run /lantern-demo again to close it.' }
+  })
+
+  // Every act on its own row: the mode's spinner word and ring, the act's name, and its power playing on a loop.
+  // The real ring and power Clients draw it; their timers run only while the pane is open.
+  on('ui.render', { component: 'Pane', requestId: DEMO }, async ($, e) => {
+    const table = $.ui.resolve(e)
+    const { Box, Text } = table
+    const Client = 'Client' in table ? table.Client : undefined
+    if (Client === undefined) return <Text color={GL.muted}>The demo plays in the terminal and the desktop app.</Text>
+    if (await read($, reducedMotion)) return <Text color={GL.muted}>The demo is still: prefersReducedMotion is on.</Text>
+    const rows = []
+    for (const [kind, word] of DEMO_MODES) {
+      if (rows.length > 0) rows.push(<Text>{''}</Text>)
+      ACTS_OF[kind].forEach((act, i) => {
+        rows.push(
+          <Box flexDirection="row">
+            <Text color={GL.lantern}>{(i === 0 ? word : '').padEnd(DEMO_LABEL)}</Text>
+            {i === 0 ? (
+              <Client key={`demo-ring-${kind}`} module="./ring.tsx" props={{ kind, palette: PALETTE } satisfies RingProps} />
+            ) : (
+              <Text>{' '}</Text>
+            )}
+            <Text color={GL.muted}>{`  ${ACT_NAMES[act].padEnd(DEMO_NAME)}`}</Text>
+            <Client key={`demo-power-${kind}-${act}`} module="./power.tsx" props={{ kind, roll: 0, act, palette: PALETTE } satisfies PowerProps} />
+          </Box>,
+        )
+      })
+    }
+    return <Box flexDirection="column">{...rows}</Box>
   })
 
   on('session.end', async ($, e, next) => {

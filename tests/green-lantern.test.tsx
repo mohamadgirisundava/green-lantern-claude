@@ -46,6 +46,7 @@ function answerSession(
   on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
   on('session.root', () => ({ value: '/Users/someone/coding/projects/cv' }))
   on('settings.read', () => ({ value: settings }))
+  on('command.register', (_$, e) => ({ value: { command: e.name } }))
   on('turn.step', async function* (_$, e) {
     return { turnId: e.turnId, index: e.index, answer: 'ok', toolUses: [], stopReason: 'end_turn', usage: null }
   })
@@ -522,6 +523,68 @@ test('every act draws its own light over the base, in single-width cells', () =>
       if (marks[act]) expect(chars.has(marks[act] ?? '')).toBe(true)
     }
   }
+})
+
+const DEMO = {
+  component: 'Pane',
+  requestId: 'lantern-demo',
+  props: { title: 'Lantern power', isFocused: false, bodyColumns: 80, placement: 'dock', scroll: { offset: 0, bodyRows: 20 }, view: {} },
+} as const
+
+/** Stands for the engine's panes: which are open, as `$.ui.panes()` lists them. */
+function enginePanes(on: On) {
+  const open = new Map<string, string>()
+  on('ui.open', (_$, e) => {
+    open.set(e.id, e.title ?? e.id)
+    return { value: { isPlaced: true } }
+  })
+  on('ui.close', (_$, e) => {
+    open.delete(e.id)
+    return { value: undefined }
+  })
+  on('ui.panes', () => ({
+    value: [...open].map(([id, title]) => ({ id, title, isShown: true, isFocused: false, isPlaced: true, plugin: 'green-lantern' })),
+  }))
+}
+
+/** /lantern-demo, typed at the prompt. */
+const demo = ($: Engine) =>
+  $.command.run({ command: 'lantern-demo', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 120 } })
+
+test('/lantern-demo plays every act in a pane, each fixed, never rolled; run again, it closes', async ($, on) => {
+  mock.clock(on, { now: NOW })
+  answerSession(on)
+  enginePanes(on)
+  await start($)
+
+  expect((await demo($)).text).toMatch(/^Opened the Lantern power demo/)
+  const ui = await $.ui.mount({ plugin: 'green-lantern', surface: 'terminal', ...DEMO })
+  // Three modes under their spinner words, a ring for each, and a row of power for every act it can roll.
+  for (const word of ['Focusing', 'Forging', 'Constructing']) expect(await ui.find({ type: 'Text', text: new RegExp(`^${word} *$`) })).toBeDefined()
+  const clients = await ui.findAll({ type: 'Client' })
+  const keys = clients.map(c => c.key ?? '')
+  expect(keys.filter(k => k.startsWith('demo-ring-'))).toEqual(['demo-ring-focusing', 'demo-ring-flowing', 'demo-ring-surging'])
+  // In the order a turn goes: thinking, writing, tools.
+  const rows = (['focusing', 'flowing', 'surging'] as const).flatMap(kind => ACTS_OF[kind].map(act => [kind, act] as const))
+  expect(keys.filter(k => k.startsWith('demo-power-'))).toEqual(rows.map(([kind, act]) => `demo-power-${kind}-${act}`))
+  for (const [kind, act] of rows) {
+    const client = clients.find(c => c.key === `demo-power-${kind}-${act}`)?.props as { props?: { kind?: string; act?: string } } | undefined
+    expect(client?.props).toMatchObject({ kind, act })
+  }
+
+  // A fixed act plays itself: the blade row forges its blade within one slot.
+  const blade = new Set<string>()
+  for (let f = 0; f < SLOT_OF.surging; f++) {
+    for (const ch of (await powerIn(ui, 'demo-power-surging-blade')) ?? '') blade.add(ch)
+    await ui.advance(110)
+  }
+  expect(blade.has('▶')).toBe(true)
+
+  // The demo's rings never steer the badge row: that listens to the spinner's alone.
+  const hud = await $.ui.mount({ plugin: 'green-lantern', surface: 'terminal', ...WORKING })
+  expect(await hud.find({ type: 'Client' })).toBeUndefined()
+
+  expect((await demo($)).text).toBe('Closed the Lantern power demo.')
 })
 
 const welcomeShown = async (ui: { find: (q: { type: string; text: string | RegExp }) => Promise<unknown> }) =>

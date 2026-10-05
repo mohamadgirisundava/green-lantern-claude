@@ -8,6 +8,10 @@ A Green Lantern UI for [Claude Code](https://claude.com/claude-code), packaged a
 
 ## Updates
 
+### 0.3.1: `/lantern-demo`
+
+- **See every act on demand.** Since each prompt rolls its act at random, `/lantern-demo` opens a pane that plays them all at once, each on its own row. See [Demo](#demo).
+
 ### 0.3.0: the power moves to the badge, and every prompt rolls its act
 
 <!-- GIF placeholder. Record one turn in 0.3.0 (Focusing → Forging → Constructing), save it as assets/power-badge.gif,
@@ -24,6 +28,21 @@ A Green Lantern UI for [Claude Code](https://claude.com/claude-code), packaged a
 - **A pool, not a meter.** Writing and tools draw the light as a bright surface over a twinkling body, instead of filled columns that read like a volume meter.
 - **Twice the width.** The power is 16 cells wide (32×4 dots), up from 8.
 - **Same cost.** The animation still runs only while Claude works, on the same 110 ms frame clock.
+
+## Demo
+
+Each prompt rolls its act at random, so any one act is hard to catch on screen. To see them all, type in Claude Code:
+
+```
+/lantern-demo
+```
+
+A pane opens with every act the ring can roll, each on its own row under its mode (*Focusing*, *Forging*, *Constructing*) and playing on a loop. Every act comes round within about 7 seconds. It draws with the plugin's real ring and power, in your own terminal, so it's also the easiest way to record them. Run `/lantern-demo` again to close it; the animations stop with the pane.
+
+<!-- GIF placeholder. Run /lantern-demo, record about 7 seconds of the pane, save it as assets/lantern-demo.gif,
+     then replace this comment with:
+![The /lantern-demo pane: every act playing at once, glints, inward ripples and a surge under Focusing; beams, pours, ripples and glints under Forging; a blade, a chain and lightning under Constructing](assets/lantern-demo.gif)
+-->
 
 ## What you get
 

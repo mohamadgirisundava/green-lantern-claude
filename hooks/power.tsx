@@ -5,6 +5,8 @@ export type PowerProps = {
   kind: PowerKind
   /** The prompt's roll: it picks the act this mode plays for the whole prompt. */
   roll: number
+  /** An act to play instead of the rolled one: the demo's rows. */
+  act?: ActName
   palette: { deep: string; emerald: string; lantern: string; glow: string; neon: string; white: string }
 }
 
@@ -451,7 +453,7 @@ const Power: ClientModule<PowerProps, number> = (props, surface) => {
   }
   const p = props.palette
   const ink = [p.deep, p.emerald, p.lantern, p.glow, p.neon, p.white]
-  const cells = powerFrame(props.kind, actOf(props.kind, props.roll), surface.state ?? 0)
+  const cells = powerFrame(props.kind, props.act ?? actOf(props.kind, props.roll), surface.state ?? 0)
   return (
     <Text>
       {...cells.map(cell => (
