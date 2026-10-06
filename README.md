@@ -8,28 +8,29 @@ A Green Lantern UI for [Claude Code](https://claude.com/claude-code), packaged a
 
 ## What you get
 
-**Ring-power spinner.** The ring takes the place of the spinner glyph, and its power moves at the far end of the same row (on the row above in terminals narrower than 100 columns). It changes with what Claude is doing:
+**A ring-power spinner.** The ring takes the place of the spinner glyph. While Claude works, its power flows out of the HUD's badge, beside your project name. Each mode has its own light, and every prompt rolls one act per mode at random:
 
-| Claude is… | Ring | Power |
-|---|---|---|
-| Sending the request | `◌ ○ ◎ ◉ ⊜`: charging | (none) |
-| Thinking | `◉`: breathing | Motes of will drifting in toward the ring |
-| Writing | `⊜` | Liquid light sloshing, sparks popping off the crests |
-| Using a tool | `⊜` flickering white-hot | The liquid boiling |
+| Claude is… | Spinner word | Ring | Power |
+|---|---|---|---|
+| Sending the request | Charging | `◌ ○ ◎ ◉ ⊜` | (none yet) |
+| Thinking | Focusing | `◉` breathing | Motes drifting in, with glints, inward ripples or a surge |
+| Writing | Forging | `⊜` | A pool of light, with beams, poured arcs, ripples or glints |
+| Writing a tool call | Shaping | `⊜` pulsing | The pool stirring, with a sketched outline, a woven cable or a mold |
+| Running a tool | Constructing | `⊜` white-hot | The pool boiling, with a forged blade, a chain or lightning |
 
-![One turn from Enter to done: liquid light sloshes above the ring during "Forging…", flares through "Shaping…" as Claude writes a command, boils during "Constructing…" while it runs, and the turn closes with "Channeled for 14s"](assets/ring-power.gif)
+![The /lantern-demo pane: every act playing at once under Focusing, Forging, Shaping and Constructing](assets/sample-use.gif)
 
-The spinner words follow the same modes: *Charging, Focusing, Forging, Shaping, Constructing*. Nothing in Claude Code's own row moves: the timer, token count and tips stay where they are.
+**Battery-style usage bars.** The 5-hour and 7-day limits show the charge *left*, full when unused and draining as you work. They pale from lantern green to almost white as they run low.
 
-**Battery-style usage bars.** The 5-hour and 7-day limits show the charge *left*, full when unused and draining as you work. They pale from lantern green, to glow at 25% left, to almost white at 10%.
-
-![The HUD band after a turn: "Constructed for 1m 10s", the model badge, a green 5-hour bar at 13% left, a near-white 7-day bar at 6% left, 636k of 1.0M context tokens, and a 60-minute cache countdown](assets/hud.png)
-
-**A fresh-session emblem.** A new session (or one just `/clear`ed) opens with the lantern emblem and the oath above the prompt, as pictured at the top. It folds away into the everyday HUD on your first prompt.
+**A fresh-session emblem.** A new session, or one just `/clear`ed, opens with the emblem and the oath, as pictured above. It folds away into the everyday HUD on your first prompt.
 
 **Lantern turn words.** *Forged for 1m 12s*, *Charged for 9s*, …
 
-**An emerald theme.** 57 of Claude Code's colors in layered greens: spinner, borders, permission prompts, diffs, the mascot. The ultrathink rainbow becomes the Emotional Spectrum of the seven Lantern Corps.
+**An emerald theme.** 57 of Claude Code's colors in layered greens, from the spinner and borders to diffs and the mascot.
+
+To see every act at once, run `/lantern-demo`. A pane opens with each act on its own row, playing on a loop; run it again to close it.
+
+![The /lantern-demo pane: every act playing at once under Focusing, Forging, Shaping and Constructing](assets/lantern-demo.gif)
 
 ## Install
 
@@ -42,9 +43,7 @@ In Claude Code:
 
 Restart Claude Code, then choose the theme with `/theme`. A plugin can ship a theme but can't select it for you.
 
-### Optional settings
-
-In `~/.claude/settings.json`:
+Optional, in `~/.claude/settings.json`:
 
 - **The oath as spinner tips:**
   ```json
@@ -58,13 +57,11 @@ In `~/.claude/settings.json`:
   ```
 - **A still ring**, if you prefer no animation: `"prefersReducedMotion": true`.
 
-## Requirements and caveats
+## Requirements
 
-- **Claude Code with plugin mods (function hooks).** Tested on Claude Code 2.1.288. The mod API is early access and may change between releases. If something breaks after an upgrade, please open an issue.
-- **Spinner layout.** The ring layer sits over Claude Code's own spinner row and relies on its current layout: the glyph in the first column, room at the end of the verb row (the power takes the last 8 columns), and, below 100 columns, an empty row above the verb.
-- **Font.** Your terminal font needs braille characters (U+2800–U+28FF) and `⊜`. Most modern monospace fonts have them.
-- **Surfaces.** The animations draw in the terminal and the desktop app. Elsewhere you get the still version.
-- **Cost.** The animation only runs while Claude is working, on Claude Code's own frame clock. Idle cost is a 30-second timer.
+- **Claude Code with plugin mods (function hooks).** Tested on 2.1.289. The mod API is early access and may change between releases; if something breaks after an upgrade, please open an issue.
+- **A font with braille, box drawing and a few symbols** (`⊜ ◆ ▶ ✦ ϟ`). Most modern monospace fonts have them.
+- **The terminal or the desktop app.** Elsewhere you get the still version. The animation runs only while Claude works.
 
 ## Development
 
@@ -76,13 +73,6 @@ claude plugin test .
 python3 scripts/check-theme.py   # after each Claude Code upgrade: theme keys it doesn't know are dropped silently
 ```
 
-| File | What it owns |
-|---|---|
-| `hooks/register.tsx` | The HUD band, battery bars, emblem, spinner hook, turn words |
-| `hooks/ring.tsx` | The ring and its power: a 16×4 braille canvas on the terminal's frame clock |
-| `themes/green-lantern.json` | The color overrides (base `dark`) |
-| `tests/green-lantern.test.tsx` | The behaviour, run by `claude plugin test` |
-
-## License and disclaimer
+## License
 
 MIT. This is a fan project, not affiliated with or endorsed by DC Comics or Warner Bros. Green Lantern and related names are trademarks of DC Comics.

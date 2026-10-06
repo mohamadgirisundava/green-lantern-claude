@@ -2,7 +2,8 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, SessionContextUsage, SessionRateLimit, Timer } from 'claude-code'
 
 import type { HudRateLimit, HudUsage } from '../types'
-import { POWER_CELLS, type RingProps } from './ring'
+import { ACTS_OF, POWER_CELLS, type ActName, type PowerKind, type PowerProps } from './power'
+import type { RingProps } from './ring'
 
 // Emerald Willpower: the palette of ~/.claude/themes/green-lantern.json. The HUD stays all green:
 // the user found yellow and red too loud, so alarms are told by paler greens instead.
@@ -28,13 +29,44 @@ const RING: Record<string, { kind: RingProps['kind']; word: string }> = {
   requesting: { kind: 'charging', word: 'Charging' },
   thinking: { kind: 'focusing', word: 'Focusing' },
   responding: { kind: 'flowing', word: 'Forging' },
-  'tool-input': { kind: 'surging', word: 'Shaping' },
+  'tool-input': { kind: 'shaping', word: 'Shaping' },
   'tool-use': { kind: 'surging', word: 'Constructing' },
 }
-// From this width the power rides the far end of the verb row. The engine's words there reach about 80 cells
-// (`Constructing… (1h 2m 3s · ↓ 120.5k tokens · still thinking with xhigh effort)`) and their length never reaches
-// the plugin, so narrower terminals keep the power on the row above.
-const INLINE_FROM_COLUMNS = 100
+// The ring and the power paint in the theme's greens, dimmest to brightest.
+const PALETTE: RingProps['palette'] = {
+  deep: GL.deep,
+  emerald: GL.emerald,
+  lantern: GL.lantern,
+  glow: GL.glow,
+  neon: GL.neon,
+  white: GL.white,
+}
+// The power sits this many cells after the project in the badge row.
+const POWER_GAP = 2
+// /lantern-demo: a pane playing every act, each fixed, under the spinner word of its mode.
+const DEMO = 'lantern-demo'
+const DEMO_MODES: [PowerKind, string][] = [
+  ['focusing', 'Focusing'],
+  ['flowing', 'Forging'],
+  ['shaping', 'Shaping'],
+  ['surging', 'Constructing'],
+]
+const ACT_NAMES: Record<ActName, string> = {
+  beam: 'Beam',
+  pour: 'Pour',
+  ripple: 'Ripple',
+  glints: 'Glints',
+  sketch: 'Sketch',
+  weave: 'Weave',
+  mold: 'Mold',
+  blade: 'Blade',
+  chain: 'Chain',
+  bolt: 'Bolt',
+  inward: 'Inward ripple',
+  surge: 'Surge',
+}
+const DEMO_LABEL = 13
+const DEMO_NAME = 15
 // A fresh session's welcome: the emblem (a ring held between two bars), lit neon at the top down to
 // emerald at the base, beside the oath. It needs WELCOME_ROWS rows above the usage line and room for the art.
 const EMBLEM_ART: [string, string][] = [
@@ -72,6 +104,7 @@ const cacheTtl = atom({ plugin: 'green-lantern', key: 'cacheTtl' } as const, nul
 const reducedMotion = atom({ plugin: 'green-lantern', key: 'reducedMotion' } as const, false)
 const welcome = atom({ plugin: 'green-lantern', key: 'welcome' } as const, false)
 const now = atom({ plugin: 'green-lantern', key: 'now' } as const, 0)
+const power = atom({ plugin: 'green-lantern', key: 'power' } as const, { kind: null, roll: 0 })
 
 /** Whether a write would change anything, so an unchanged figure redraws nothing. */
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
@@ -188,6 +221,7 @@ async function refresh($: EngineInterface) {
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
+    await $.command.register({ name: DEMO, description: 'Play every ring-power act in a pane, to look at or record' })
     await refresh($)
     // A reload re-runs this: only a session with no prompts yet gets the welcome.
     const fresh = (await $.session.turns()) === 0
@@ -229,10 +263,60 @@ export const register: Register = on => {
     return next(e)
   })
 
-  // The first prompt folds the welcome away; /clear is a clean slate and brings it back.
+  // The first prompt folds the welcome away; /clear is a clean slate and brings it back. Every prompt rolls the
+  // power afresh (its act for each mode, held all prompt) and forgets the last prompt's mode.
   on('prompt.submit', async ($, e, next) => {
     if (await read($, welcome)) await update($, welcome, () => false)
+    const roll = await $.clock.now()
+    await update($, power, () => ({ kind: null, roll }))
     return next(e)
+  })
+
+  // The spinner's ring says which mode it shows as it appears: the band draws that mode's power. The mode is read
+  // off the ring's key, which the engine reports, never off what the ring posted.
+  on('ui.message', async ($, e, next) => {
+    const kind = e.component === 'Spinner' ? Object.values(RING).find(r => e.element === `ring-${r.kind}`)?.kind : undefined
+    if (kind && (await read($, power)).kind !== kind) await update($, power, p => ({ ...p, kind }))
+    return next(e)
+  })
+
+  // The demo toggles: random rolls make an act hard to catch on screen, so this plays each one on demand.
+  on('command.run', { command: DEMO }, async $ => {
+    if ((await $.ui.panes()).some(pane => pane.id === DEMO)) {
+      await $.ui.close({ id: DEMO })
+      return { text: 'Closed the Lantern power demo.' }
+    }
+    // Every act's row, with a blank row between each two.
+    const rows = 2 * Object.values(ACTS_OF).reduce((n, acts) => n + acts.length, 0) - 1
+    await $.ui.open({ id: DEMO, title: 'Lantern power', rows, columns: DEMO_LABEL + 3 + DEMO_NAME + POWER_CELLS })
+    return { text: 'Opened the Lantern power demo: every act the ring can roll, playing on a loop. Run /lantern-demo again to close it.' }
+  })
+
+  // Every act on its own row, a blank row between each two so the rows of light don't touch: the mode's spinner
+  // word and ring, the act's name, and its power playing on a loop. The real ring and power Clients draw it;
+  // their timers run only while the pane is open.
+  on('ui.render', { component: 'Pane', requestId: DEMO }, async ($, e) => {
+    const table = $.ui.resolve(e)
+    const { Box, Text } = table
+    const Client = 'Client' in table ? table.Client : undefined
+    if (Client === undefined) return <Text color={GL.muted}>The demo plays in the terminal and the desktop app.</Text>
+    if (await read($, reducedMotion)) return <Text color={GL.muted}>The demo is still: prefersReducedMotion is on.</Text>
+    const rows = DEMO_MODES.flatMap(([kind, word]) =>
+      ACTS_OF[kind].map((act, i) => (
+        <Box flexDirection="row">
+          <Text color={GL.lantern}>{(i === 0 ? word : '').padEnd(DEMO_LABEL)}</Text>
+          {i === 0 ? (
+            <Client key={`demo-ring-${kind}`} module="./ring.tsx" props={{ kind, palette: PALETTE } satisfies RingProps} />
+          ) : (
+            <Text>{' '}</Text>
+          )}
+          <Text color={GL.muted}>{`  ${ACT_NAMES[act].padEnd(DEMO_NAME)}`}</Text>
+          <Client key={`demo-power-${kind}-${act}`} module="./power.tsx" props={{ kind, roll: 0, act, palette: PALETTE } satisfies PowerProps} />
+        </Box>
+      )),
+    )
+    const spaced = rows.flatMap((row, i) => (i === 0 ? [row] : [<Text>{''}</Text>, row]))
+    return <Box flexDirection="column">{...spaced}</Box>
   })
 
   on('session.end', async ($, e, next) => {
@@ -258,9 +342,8 @@ export const register: Register = on => {
   })
 
   // The spinner: the engine's row is sealed (an opaque handle), so nothing can go inside it, and shifting it
-  // pushes its tip row too. Instead one layer is painted over it, taking no room: the ring in column 0 of the
-  // verb row (over the glyph) and the power at the far end of that row on a wide terminal, else on the empty
-  // spacer row above. Nothing of the engine's moves.
+  // pushes its tip row too. Instead one cell is painted over it, taking no room: the ring in column 0 of the verb
+  // row, over the glyph. The power it drives rides the badge row of the band below.
   on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
     const ring = RING[e.props.mode]
     const drawn = await next(ring && e.props.message === null ? { ...e, props: { ...e.props, word: ring.word } } : e)
@@ -268,41 +351,11 @@ export const register: Register = on => {
     const { Box } = table
     const Client = 'Client' in table ? table.Client : undefined
     if (!ring || Client === undefined || (await read($, reducedMotion))) return drawn
-    const palette: RingProps['palette'] = {
-      deep: GL.deep,
-      emerald: GL.emerald,
-      lantern: GL.lantern,
-      glow: GL.glow,
-      neon: GL.neon,
-      white: GL.white,
-    }
-    const columns = e.viewport?.columns ?? 0
-    if (e.surface === 'terminal' && columns >= INLINE_FROM_COLUMNS) {
-      // A region repaints whole on every frame, so neither spans the engine's words: the ring keeps the glyph's
-      // cell and the power the last cells of the block's bottom row, its bottom-right corner. Charging has no power yet.
-      const power =
-        ring.kind === 'charging'
-          ? []
-          : [
-              <Box position="absolute" bottom={0} left={columns - POWER_CELLS}>
-                <Client key={`power-${ring.kind}`} module="./ring.tsx" props={{ kind: ring.kind, part: 'power', palette } satisfies RingProps} />
-              </Box>,
-            ]
-      return (
-        <Box flexDirection="column">
-          {drawn}
-          <Box position="absolute" top={1} left={0}>
-            <Client key={`ring-${ring.kind}`} module="./ring.tsx" props={{ kind: ring.kind, part: 'ring', palette } satisfies RingProps} />
-          </Box>
-          {...power}
-        </Box>
-      )
-    }
     return (
       <Box flexDirection="column">
         {drawn}
-        <Box position="absolute" top={0} left={0}>
-          <Client key={`ring-${ring.kind}`} module="./ring.tsx" props={{ kind: ring.kind, part: 'both', palette } satisfies RingProps} />
+        <Box position="absolute" top={1} left={0}>
+          <Client key={`ring-${ring.kind}`} module="./ring.tsx" props={{ kind: ring.kind, palette: PALETTE } satisfies RingProps} />
         </Box>
       </Box>
     )
@@ -315,7 +368,7 @@ export const register: Register = on => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
 
-    const [m, p, u, last, ttl, t, fresh] = await Promise.all([
+    const [m, p, u, last, ttl, t, fresh, pw, still] = await Promise.all([
       read($, model),
       read($, project),
       read($, usage),
@@ -323,10 +376,14 @@ export const register: Register = on => {
       read($, cacheTtl),
       read($, now),
       read($, welcome),
+      read($, power),
+      read($, reducedMotion),
     ])
     if (m === null) return next(e)
 
-    const { Box, Text } = $.ui.resolve(e)
+    const table = $.ui.resolve(e)
+    const { Box, Text } = table
+    const Client = 'Client' in table ? table.Client : undefined
     const label = (text: string) => <Text color={GL.muted}>{text}</Text>
     const blank = () => <Text>{''}</Text>
     const effortText = (effort: string) => (
@@ -413,21 +470,35 @@ export const register: Register = on => {
 
     const columns = e.props.bodyColumns
     const panelWidth = Math.min(columns, PANEL_MAX_COLUMNS)
-    const header = (
+    // While Claude works, the ring's power flows out of the model line into the header's free cells, if the row
+    // has room for it beside the project: the panel's inside for the panel, the whole band for the compact form.
+    const headerCells = `⊜ ${modelName(m.id)}${m.effort ? `  ·  ${m.effort}` : ''}`.length + (p ? p.length + 1 : 0)
+    const kind = pw.kind === 'charging' ? null : pw.kind
+    const powerFits = (room: number) =>
+      e.props.isWorking && kind !== null && Client !== undefined && !still && headerCells + POWER_GAP + POWER_CELLS <= room
+    const header = (room: number) => (
       <Box flexDirection="row" justifyContent="space-between">
-        <Text>
-          <Text color={GL.neon}>⊜ </Text>
-          <Text bold color={GL.lantern}>
-            {modelName(m.id)}
+        <Box flexDirection="row">
+          <Text>
+            <Text color={GL.neon}>⊜ </Text>
+            <Text bold color={GL.lantern}>
+              {modelName(m.id)}
+            </Text>
+            {m.effort ? label('  ·  ') : ''}
+            {m.effort ? effortText(m.effort) : ''}
           </Text>
-          {m.effort ? label('  ·  ') : ''}
-          {m.effort ? effortText(m.effort) : ''}
-        </Text>
+          {...(powerFits(room) && Client && kind
+            ? [
+                <Text>{' '.repeat(POWER_GAP)}</Text>,
+                <Client key={`power-${kind}`} module="./power.tsx" props={{ kind, roll: pw.roll, palette: PALETTE } satisfies PowerProps} />,
+              ]
+            : [])}
+        </Box>
         {p ? <Text color={GL.muted}>{p}</Text> : blank()}
       </Box>
     )
     const panel = (withHeader: boolean) => {
-      const body = withHeader ? [header, <Text color={GL.deep}>{'─'.repeat(panelWidth - 4)}</Text>, ...meters] : meters
+      const body = withHeader ? [header(panelWidth - 4), <Text color={GL.deep}>{'─'.repeat(panelWidth - 4)}</Text>, ...meters] : meters
       return (
         <Box flexDirection="column" borderStyle="round" borderColor={GL.deep} paddingX={1} width={panelWidth}>
           {...body}
@@ -519,7 +590,7 @@ export const register: Register = on => {
     }
 
     if (panelFits(true)) return panel(true)
-    const rows = [header]
+    const rows = [header(columns)]
     if (compactSegments.length > 0) rows.push(compact)
     return <Box flexDirection="column">{...rows}</Box>
   })

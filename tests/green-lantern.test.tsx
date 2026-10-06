@@ -2,6 +2,8 @@ import type { On, SessionRateLimit, Settings } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 
+import { ACTS_OF, actOf, powerFrame, SLOT_OF, type ActName, type PowerKind } from '../hooks/power'
+
 const NOW = Date.parse('2026-10-03T10:00:00Z')
 const MIN = 60_000
 const SURFACES = ['terminal', 'desktop'] as const
@@ -44,6 +46,7 @@ function answerSession(
   on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
   on('session.root', () => ({ value: '/Users/someone/coding/projects/cv' }))
   on('settings.read', () => ({ value: settings }))
+  on('command.register', (_$, e) => ({ value: { command: e.name } }))
   on('turn.step', async function* (_$, e) {
     return { turnId: e.turnId, index: e.index, answer: 'ok', toolUses: [], stopReason: 'end_turn', usage: null }
   })
@@ -265,69 +268,110 @@ test('the spinner word follows what Claude is doing, and a state message keeps i
   expect(await busy.find({ type: 'Text', text: '✻ Compacting conversation… (56s)' })).toBeDefined()
 })
 
-/** One layer over the engine's spinner: the power row (on its empty spacer row) and the ring cell (over its glyph). */
-async function layer(ui: { find: (q: { type: string; text: string | RegExp; in?: string }) => Promise<{ text: string } | undefined> }, key: string) {
-  const power = (await ui.find({ type: 'Text', text: /^ /, in: key }))?.text
-  const ring = (await ui.find({ type: 'Text', text: /^[◌○◎◉⊜]$/, in: key }))?.text
-  return { power, ring }
+type Finder = { find: (q: { type: string; text?: string | RegExp; in?: string }) => Promise<{ text: string } | undefined> }
+
+/** The ring over the engine's spinner glyph: its one cell. */
+const ringIn = async (ui: Finder, key: string) => (await ui.find({ type: 'Text', text: /^[◌○◎◉⊜]$/, in: key }))?.text
+
+/** The power beside the project in the band's badge row: its sixteen cells. */
+const powerIn = async (ui: Finder, key: string) => (await ui.find({ type: 'Text', in: key }))?.text
+
+// Braille, or one of the power's single-width glyphs: never an emoji, which takes two cells.
+const POWER_ROW = /^[⠀-⣿┿┄▷━═▶╳⁘·˙╱╲◆✦✧─ϟ◇├┤◁╟╢]{16}$/u
+
+/** Claude at work in a mode: the spinner's ring appears and tells the band, which draws the power. */
+async function working(
+  $: Engine,
+  mode: SpinnerMode,
+  { surface = 'terminal', bodyColumns = BAND.props.bodyColumns }: { surface?: 'terminal' | 'desktop'; bodyColumns?: number } = {},
+) {
+  const spin = await $.ui.mount({ plugin: 'green-lantern', surface, ...spinner(mode) })
+  const hud = await $.ui.mount({ plugin: 'green-lantern', surface, ...WORKING, props: { ...WORKING.props, bodyColumns } })
+  return { spin, hud }
 }
 
-test('the ring takes the glyph’s cell and its power rides the row above: nothing of the engine’s moves', async ($, on) => {
+/** Frames of a mode's power, one per step of its clock. */
+async function frames($: Engine, mode: SpinnerMode, kind: string, count: number) {
+  const { spin, hud } = await working($, mode)
+  const rows: string[] = []
+  for (let f = 0; f < count; f++) {
+    rows.push((await powerIn(hud, `power-${kind}`)) ?? '')
+    await hud.advance(110)
+  }
+  await spin.unmount()
+  await hud.unmount()
+  return rows
+}
+
+test('the ring takes the glyph’s cell on the verb row at every width: nothing of the engine’s moves', async ($, on) => {
   mock.clock(on, { now: NOW })
   answerSession(on)
   engineSpinner(on)
   await start($)
 
   for (const surface of SURFACES) {
-    const ui = await $.ui.mount({ plugin: 'green-lantern', surface, ...spinner('responding') })
-    expect(await ui.find({ type: 'Text', text: '✻ Forging… (56s)' })).toBeDefined()
-    const boxes = await ui.findAll({ type: 'Box' })
-    // No spacer pushing the engine's rows right: the only layout box is the layer, which takes no room.
-    expect(boxes.some(b => typeof b.props.width === 'number')).toBe(false)
-    expect(boxes.find(b => b.props.position === 'absolute')?.props).toMatchObject({ position: 'absolute', top: 0, left: 0 })
-    expect((await ui.find({ type: 'Client' }))?.key).toBe('ring-flowing')
-    const { power, ring } = await layer(ui, 'ring-flowing')
-    expect(ring).toBe('⊜')
-    expect(power).toMatch(/^ [\u2800-\u28FF]{8}$/)
-    await ui.unmount()
+    for (const columns of [80, 160]) {
+      const ui = await $.ui.mount({ plugin: 'green-lantern', surface, viewport: { columns, rows: 40 }, ...spinner('responding') })
+      expect(await ui.find({ type: 'Text', text: '✻ Forging… (56s)' })).toBeDefined()
+      const boxes = await ui.findAll({ type: 'Box' })
+      // No spacer pushing the engine's rows right: the one layout box is the ring's layer, which takes no room.
+      expect(boxes.some(b => typeof b.props.width === 'number')).toBe(false)
+      expect(boxes.filter(b => b.props.position === 'absolute').map(b => b.props)).toEqual([{ position: 'absolute', top: 1, left: 0 }])
+      // The power lives in the band now: the spinner holds the ring alone.
+      expect((await ui.findAll({ type: 'Client' })).map(c => c.key)).toEqual(['ring-flowing'])
+      expect(await ringIn(ui, 'ring-flowing')).toBe('⊜')
+      await ui.unmount()
+    }
   }
 })
 
-test('on a wide terminal the power rides the far end of the verb row; narrower, or on the desktop, the row above', async ($, on) => {
+test('the power rides the badge row beside the project while Claude works, and only then', async ($, on) => {
   mock.clock(on, { now: NOW })
   answerSession(on)
   engineSpinner(on)
   await start($)
 
-  const ui = await $.ui.mount({ plugin: 'green-lantern', surface: 'terminal', viewport: { columns: 120, rows: 40 }, ...spinner('thinking') })
-  expect(await ui.find({ type: 'Text', text: '\u273B Focusing\u2026 (56s)' })).toBeDefined()
-  // Two small regions on the verb row, none over the engine's words: a region repaints whole on every frame,
-  // so one spanning the row made the words under it blink. The ring takes the glyph's cell, the power the last eight.
-  const layers = (await ui.findAll({ type: 'Box' })).filter(b => b.props.position === 'absolute').map(b => b.props)
-  expect(layers).toEqual([
-    { position: 'absolute', top: 1, left: 0 },
-    { position: 'absolute', bottom: 0, left: 112 },
-  ])
-  const clients = await ui.findAll({ type: 'Client' })
-  expect(clients.map(c => c.key)).toEqual(['ring-focusing', 'power-focusing'])
-  expect(clients.some(c => c.props.width !== undefined)).toBe(false)
-  expect((await ui.findAll({ type: 'Text', in: 'ring-focusing' })).map(t => t.text)).toEqual(['\u25C9'])
-  expect((await ui.find({ type: 'Text', in: 'power-focusing' }))?.text).toMatch(/^[\u2800-\u28FF]{8}$/)
-  await ui.unmount()
+  // Idle: the badge row ends at the project.
+  const idle = await $.ui.mount({ plugin: 'green-lantern', surface: 'terminal', ...BAND })
+  expect(await idle.find({ type: 'Client' })).toBeUndefined()
+  await idle.unmount()
 
-  // Charging has no power yet: only the ring's region.
-  const charging = await $.ui.mount({ plugin: 'green-lantern', surface: 'terminal', viewport: { columns: 120, rows: 40 }, ...spinner('requesting') })
-  expect((await charging.findAll({ type: 'Client' })).map(c => c.key)).toEqual(['ring-charging'])
-  await charging.unmount()
+  for (const surface of SURFACES) {
+    const { spin, hud } = await working($, 'responding', { surface })
+    // Two cells after the model line, the light flowing out of the panel's header into its free cells.
+    expect(await hud.find({ type: 'Text', text: /^⊜ Opus 5\.5$/ })).toBeDefined()
+    expect(await hud.find({ type: 'Text', text: /^cv$/ })).toBeDefined()
+    expect((await hud.findAll({ type: 'Client' })).map(c => c.key)).toEqual(['power-flowing'])
+    expect(await powerIn(hud, 'power-flowing')).toMatch(POWER_ROW)
+    await hud.unmount()
 
-  // Too narrow to be sure the engine's words end before the power, or a desktop row: the power stays above.
-  for (const [surface, columns] of [['terminal', 80], ['desktop', 120]] as const) {
-    const above = await $.ui.mount({ plugin: 'green-lantern', surface, viewport: { columns, rows: 40 }, ...spinner('thinking') })
-    expect((await above.findAll({ type: 'Box' })).find(b => b.props.position === 'absolute')?.props).toMatchObject({ top: 0, left: 0 })
-    expect((await above.findAll({ type: 'Client' })).map(c => c.key)).toEqual(['ring-focusing'])
-    expect((await layer(above, 'ring-focusing')).power).toMatch(/^ [\u2800-\u28FF]{8}$/)
-    await above.unmount()
+    // The turn over, the power goes, though the last mode is still on record.
+    const done = await $.ui.mount({ plugin: 'green-lantern', surface, ...BAND })
+    expect(await done.find({ type: 'Client' })).toBeUndefined()
+    await done.unmount()
+    await spin.unmount()
   }
+
+  // Charging has no power yet.
+  const charging = await working($, 'requesting')
+  expect(await charging.hud.find({ type: 'Client' })).toBeUndefined()
+  await charging.spin.unmount()
+  await charging.hud.unmount()
+
+  // Too narrow for the panel, the header spans the band: `⊜ Opus 5.5` and ` cv` are 13 cells, so with two of
+  // space and sixteen of power it needs 31.
+  for (const [bodyColumns, shown] of [[30, false], [31, true]] as const) {
+    const { spin, hud } = await working($, 'thinking', { bodyColumns })
+    expect((await hud.find({ type: 'Client' })) !== undefined).toBe(shown)
+    await spin.unmount()
+    await hud.unmount()
+  }
+
+  // A new prompt forgets the last mode: nothing shows until the spinner says what Claude is doing.
+  await (await working($, 'tool-use')).spin.unmount()
+  await $.prompt.submit({ text: 'next', wait: false, origin: { kind: 'composer' } })
+  const fresh = await $.ui.mount({ plugin: 'green-lantern', surface: 'terminal', ...WORKING })
+  expect(await fresh.find({ type: 'Client' })).toBeUndefined()
 })
 
 test('each mode has its ring and its power, and both move', async ($, on) => {
@@ -336,54 +380,228 @@ test('each mode has its ring and its power, and both move', async ($, on) => {
   engineSpinner(on)
   await start($)
 
-  const cases: [SpinnerMode, string, RegExp, RegExp][] = [
-    ['requesting', 'ring-charging', /^[◌○◎◉⊜]$/, /^ $/],
-    ['thinking', 'ring-focusing', /^◉$/, /^ [\u2800-\u28FF]{8}$/],
-    ['responding', 'ring-flowing', /^⊜$/, /^ [\u2800-\u28FF]{8}$/],
-    ['tool-use', 'ring-surging', /^⊜$/, /^ [\u2800-\u28FF]{8}$/],
+  const cases: [SpinnerMode, string, RegExp][] = [
+    ['requesting', 'charging', /^[◌○◎◉⊜]$/],
+    ['thinking', 'focusing', /^◉$/],
+    ['responding', 'flowing', /^⊜$/],
+    ['tool-input', 'shaping', /^⊜$/],
+    ['tool-use', 'surging', /^⊜$/],
   ]
-  for (const [mode, key, ring, power] of cases) {
-    const ui = await $.ui.mount({ plugin: 'green-lantern', surface: 'terminal', ...spinner(mode) })
-    const before = await layer(ui, key)
+  for (const [mode, kind, ring] of cases) {
+    const { spin, hud } = await working($, mode)
+    // Charging has no power yet: only the ring moves.
+    const charging = kind === 'charging'
+    const shot = async () => ({ ring: await ringIn(spin, `ring-${kind}`), power: charging ? '' : await powerIn(hud, `power-${kind}`) })
+    if (charging) expect(await hud.find({ type: 'Client' })).toBeUndefined()
+    const before = await shot()
     expect(before.ring).toMatch(ring)
-    expect(before.power).toMatch(power)
-    await ui.advance(110 * 2)
-    const after = await layer(ui, key)
+    if (!charging) expect(before.power).toMatch(POWER_ROW)
+    await spin.advance(110 * 2)
+    await hud.advance(110 * 2)
+    const after = await shot()
     // Something visibly changed: the ring glyph, or the power row.
     expect(after.ring !== before.ring || after.power !== before.power).toBe(true)
-    await ui.unmount()
+    await spin.unmount()
+    await hud.unmount()
   }
 })
 
-test('reduced motion leaves the engine’s row as it is', async ($, on) => {
+test('reduced motion leaves the engine’s row as it is, and the badge row without power', async ($, on) => {
   mock.clock(on, { now: NOW })
   answerSession(on, { settings: { prefersReducedMotion: true } })
   engineSpinner(on)
   await start($)
 
-  const ui = await $.ui.mount({ plugin: 'green-lantern', surface: 'terminal', ...spinner('responding') })
-  expect(await ui.find({ type: 'Text', text: '✻ Forging… (56s)' })).toBeDefined()
-  expect(await ui.find({ type: 'Client' })).toBeUndefined()
-  expect((await ui.findAll({ type: 'Box' })).some(b => b.props.position === 'absolute')).toBe(false)
+  const { spin, hud } = await working($, 'responding')
+  expect(await spin.find({ type: 'Text', text: '✻ Forging… (56s)' })).toBeDefined()
+  expect(await spin.find({ type: 'Client' })).toBeUndefined()
+  expect((await spin.findAll({ type: 'Box' })).some(b => b.props.position === 'absolute')).toBe(false)
+  expect(await hud.find({ type: 'Client' })).toBeUndefined()
 })
 
-test('tools make the power surge: the same braid, faster and brighter, no extra shapes', async ($, on) => {
+test('the power is a pool of light and particles, never a scroll', async ($, on) => {
   mock.clock(on, { now: NOW })
   answerSession(on)
   engineSpinner(on)
   await start($)
 
-  for (const mode of ['tool-input', 'tool-use'] as const) {
-    const ui = await $.ui.mount({ plugin: 'green-lantern', surface: 'terminal', ...spinner(mode) })
-    expect((await ui.find({ type: 'Client' }))?.key).toBe('ring-surging')
-    // Only the ring and its braid: the ring in the glyph's cell, eight braille cells of power above.
-    const before = await layer(ui, 'ring-surging')
-    expect(before.ring).toBe('⊜')
-    expect(before.power).toMatch(/^ [\u2800-\u28FF]{8}$/)
-    await ui.advance(110)
-    expect((await layer(ui, 'ring-surging')).power).not.toBe(before.power)
-    await ui.unmount()
+  for (const [mode, kind] of [['responding', 'flowing'], ['tool-input', 'shaping'], ['tool-use', 'surging']] as const) {
+    const rows = await frames($, mode, kind, 6)
+    for (const row of rows) {
+      expect(row).toMatch(POWER_ROW)
+      expect([...row].some(ch => ch !== '⠀')).toBe(true) // there is light
+    }
+    for (let i = 1; i < rows.length; i++) {
+      const [a, b] = [rows[i - 1] ?? '', rows[i] ?? '']
+      expect(b).not.toBe(a)
+      // Not the previous frame slid one cell either way: the surface changes shape as it moves.
+      expect(b.slice(1)).not.toBe(a.slice(0, -1))
+      expect(b.slice(0, -1)).not.toBe(a.slice(1))
+    }
   }
+})
+
+test('the power spans its whole width: motes drift in from the far end to the badge', async ($, on) => {
+  mock.clock(on, { now: NOW })
+  answerSession(on)
+  engineSpinner(on)
+  await start($)
+
+  const seen = new Set<number>()
+  for (const row of await frames($, 'thinking', 'focusing', 40)) [...row].forEach((ch, c) => ch !== '⠀' && seen.add(c))
+  expect(seen.has(0)).toBe(true)
+  expect([...seen].some(c => c >= 12)).toBe(true)
+})
+
+test('the power looks the same at every effort', async ($, on) => {
+  mock.clock(on, { now: NOW })
+  answerSession(on)
+  engineSpinner(on)
+  await start($)
+
+  const at = async (effort: 'low' | 'xhigh' | 'max', mode: SpinnerMode, kind: string) => {
+    const step = $.turn.step({ turnId: `t-${effort}-${mode}`, index: 0, model: 'claude-opus-5-5', effort, messageCount: 1 })
+    for await (const _ of step);
+    return frames($, mode, kind, 12)
+  }
+  for (const [mode, kind] of [['thinking', 'focusing'], ['responding', 'flowing'], ['tool-input', 'shaping'], ['tool-use', 'surging']] as const) {
+    const low = await at('low', mode, kind)
+    expect(await at('xhigh', mode, kind)).toEqual(low)
+    expect(await at('max', mode, kind)).toEqual(low)
+  }
+})
+
+test('a prompt rolls the power once and keeps it through every mode; the next prompt rolls again', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  answerSession(on)
+  engineSpinner(on)
+  await start($)
+
+  const rollIn = async (mode: SpinnerMode) => {
+    const { spin, hud } = await working($, mode)
+    // The Client's own props carry what the band handed the power.
+    const client = (await hud.find({ type: 'Client' }))?.props as { props?: { roll?: number } } | undefined
+    await spin.unmount()
+    await hud.unmount()
+    return client?.props?.roll
+  }
+  await $.prompt.submit({ text: 'one', wait: true, origin: { kind: 'composer' } })
+  const first = await rollIn('thinking')
+  expect(typeof first).toBe('number')
+  // Thinking, writing, a tool, writing again: one prompt, one roll.
+  expect(await rollIn('responding')).toBe(first)
+  expect(await rollIn('tool-use')).toBe(first)
+  expect(await rollIn('responding')).toBe(first)
+
+  await clock.advance(4_321)
+  await $.prompt.submit({ text: 'two', wait: true, origin: { kind: 'composer' } })
+  expect(await rollIn('responding')).not.toBe(first)
+})
+
+test('every act a mode can roll comes up, each about as often, whatever came before', () => {
+  for (const [kind, acts] of Object.entries(ACTS_OF) as [PowerKind, readonly string[]][]) {
+    const counts = new Map<string, number>()
+    let repeats = 0
+    let last = ''
+    const rolls = 3000
+    for (let r = 0; r < rolls; r++) {
+      const act = actOf(kind, NOW + r * 977)
+      counts.set(act, (counts.get(act) ?? 0) + 1)
+      if (act === last) repeats++
+      last = act
+    }
+    expect([...counts.keys()].sort()).toEqual([...acts].sort())
+    for (const n of counts.values()) {
+      expect(n / rolls).toBeGreaterThan(0.8 / acts.length)
+      expect(n / rolls).toBeLessThan(1.2 / acts.length)
+    }
+    // Plain random: the same act can come up twice running, as often as any other.
+    expect(repeats / rolls).toBeGreaterThan(0.6 / acts.length)
+  }
+})
+
+test('every act draws its own light over the base, in single-width cells', () => {
+  // The glyph acts show their mark; the dot acts change the base's dots.
+  const marks: Record<string, string> = { beam: '◆', glints: '✦', blade: '▶', bolt: 'ϟ', sketch: '◇', weave: '╳' }
+  for (const [kind, acts] of Object.entries(ACTS_OF) as [PowerKind, readonly ActName[]][]) {
+    for (const act of acts) {
+      let own = false
+      const chars = new Set<string>()
+      for (let f = 0; f < SLOT_OF[kind]; f++) {
+        const row = powerFrame(kind, act, f).map(c => c.ch).join('')
+        expect(row).toMatch(POWER_ROW)
+        for (const ch of row) chars.add(ch)
+        own ||= row !== powerFrame(kind, null, f).map(c => c.ch).join('')
+      }
+      expect(own).toBe(true)
+      if (marks[act]) expect(chars.has(marks[act] ?? '')).toBe(true)
+    }
+  }
+})
+
+const DEMO = {
+  component: 'Pane',
+  requestId: 'lantern-demo',
+  props: { title: 'Lantern power', isFocused: false, bodyColumns: 80, placement: 'dock', scroll: { offset: 0, bodyRows: 20 }, view: {} },
+} as const
+
+/** Stands for the engine's panes: which are open, as `$.ui.panes()` lists them. */
+function enginePanes(on: On) {
+  const open = new Map<string, string>()
+  on('ui.open', (_$, e) => {
+    open.set(e.id, e.title ?? e.id)
+    return { value: { isPlaced: true } }
+  })
+  on('ui.close', (_$, e) => {
+    open.delete(e.id)
+    return { value: undefined }
+  })
+  on('ui.panes', () => ({
+    value: [...open].map(([id, title]) => ({ id, title, isShown: true, isFocused: false, isPlaced: true, plugin: 'green-lantern' })),
+  }))
+}
+
+/** /lantern-demo, typed at the prompt. */
+const demo = ($: Engine) =>
+  $.command.run({ command: 'lantern-demo', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 120 } })
+
+test('/lantern-demo plays every act in a pane, each fixed, never rolled; run again, it closes', async ($, on) => {
+  mock.clock(on, { now: NOW })
+  answerSession(on)
+  enginePanes(on)
+  await start($)
+
+  expect((await demo($)).text).toMatch(/^Opened the Lantern power demo/)
+  const ui = await $.ui.mount({ plugin: 'green-lantern', surface: 'terminal', ...DEMO })
+  // Three modes under their spinner words, a ring for each, and a row of power for every act it can roll.
+  for (const word of ['Focusing', 'Forging', 'Shaping', 'Constructing']) expect(await ui.find({ type: 'Text', text: new RegExp(`^${word} *$`) })).toBeDefined()
+  const clients = await ui.findAll({ type: 'Client' })
+  const keys = clients.map(c => c.key ?? '')
+  expect(keys.filter(k => k.startsWith('demo-ring-'))).toEqual(['demo-ring-focusing', 'demo-ring-flowing', 'demo-ring-shaping', 'demo-ring-surging'])
+  // In the order a turn goes: thinking, writing, writing a tool call, running it.
+  const rows = (['focusing', 'flowing', 'shaping', 'surging'] as const).flatMap(kind => ACTS_OF[kind].map(act => [kind, act] as const))
+  // A blank row between every two, so the rows of light don't touch.
+  const lines = await ui.findAll({ type: 'Text', text: /^$/ })
+  expect(lines.length).toBe(rows.length - 1)
+  expect(keys.filter(k => k.startsWith('demo-power-'))).toEqual(rows.map(([kind, act]) => `demo-power-${kind}-${act}`))
+  for (const [kind, act] of rows) {
+    const client = clients.find(c => c.key === `demo-power-${kind}-${act}`)?.props as { props?: { kind?: string; act?: string } } | undefined
+    expect(client?.props).toMatchObject({ kind, act })
+  }
+
+  // A fixed act plays itself: the blade row forges its blade within one slot.
+  const blade = new Set<string>()
+  for (let f = 0; f < SLOT_OF.surging; f++) {
+    for (const ch of (await powerIn(ui, 'demo-power-surging-blade')) ?? '') blade.add(ch)
+    await ui.advance(110)
+  }
+  expect(blade.has('▶')).toBe(true)
+
+  // The demo's rings never steer the badge row: that listens to the spinner's alone.
+  const hud = await $.ui.mount({ plugin: 'green-lantern', surface: 'terminal', ...WORKING })
+  expect(await hud.find({ type: 'Client' })).toBeUndefined()
+
+  expect((await demo($)).text).toBe('Closed the Lantern power demo.')
 })
 
 const welcomeShown = async (ui: { find: (q: { type: string; text: string | RegExp }) => Promise<unknown> }) =>
@@ -437,65 +655,6 @@ test('the emblem steps aside when the band cannot fit it', async ($, on) => {
   await short.unmount()
   const narrow = await $.ui.mount({ plugin: 'green-lantern', surface: 'terminal', ...BAND, props: { ...BAND.props, bodyColumns: 30 } })
   expect(await welcomeShown(narrow)).toBe(false)
-})
-
-test('the power is liquid and particles, not a scroll', async ($, on) => {
-  mock.clock(on, { now: NOW })
-  answerSession(on)
-  engineSpinner(on)
-  await start($)
-
-  for (const [mode, key] of [['responding', 'ring-flowing'], ['tool-use', 'ring-surging']] as const) {
-    const ui = await $.ui.mount({ plugin: 'green-lantern', surface: 'terminal', ...spinner(mode) })
-    const rows: string[] = []
-    for (let f = 0; f < 6; f++) {
-      rows.push(((await layer(ui, key)).power ?? '').slice(1))
-      await ui.advance(110)
-    }
-    for (const row of rows) expect([...row].some(ch => ch !== '\u2800')).toBe(true) // there is liquid
-    for (let i = 1; i < rows.length; i++) {
-      const [a, b] = [rows[i - 1] ?? '', rows[i] ?? '']
-      expect(b).not.toBe(a)
-      // Not the previous frame slid one cell either way: the surface changes shape as it moves.
-      expect(b.slice(1)).not.toBe(a.slice(0, -1))
-      expect(b.slice(0, -1)).not.toBe(a.slice(1))
-    }
-    await ui.unmount()
-  }
-})
-
-/** How many dots a braille row lights: its density. */
-const lit = (row: string) => [...row].reduce((n, ch) => {
-  let bits = (ch.codePointAt(0) ?? 0x2800) - 0x2800
-  for (; bits > 0; bits >>= 1) n += bits & 1
-  return n
-}, 0)
-
-test('the power looks the same at every effort', async ($, on) => {
-  mock.clock(on, { now: NOW })
-  answerSession(on)
-  engineSpinner(on)
-  await start($)
-
-  // A dozen frames of a mode's power row, at one effort.
-  const frames = async (effort: 'low' | 'xhigh' | 'max', mode: SpinnerMode, key: string) => {
-    const step = $.turn.step({ turnId: `t-${effort}-${mode}`, index: 0, model: 'claude-opus-5-5', effort, messageCount: 1 })
-    for await (const _ of step);
-    const ui = await $.ui.mount({ plugin: 'green-lantern', surface: 'terminal', ...spinner(mode) })
-    const rows: string[] = []
-    for (let f = 0; f < 12; f++) {
-      rows.push((await layer(ui, key)).power ?? '')
-      await ui.advance(110)
-    }
-    await ui.unmount()
-    return rows
-  }
-
-  for (const [mode, key] of [['thinking', 'ring-focusing'], ['responding', 'ring-flowing'], ['tool-use', 'ring-surging']] as const) {
-    const low = await frames('low', mode, key)
-    expect(await frames('xhigh', mode, key)).toEqual(low)
-    expect(await frames('max', mode, key)).toEqual(low)
-  }
 })
 
 test('the limits read as charge left, fading from lantern green to pale as they drain; empty warns', async ($, on) => {

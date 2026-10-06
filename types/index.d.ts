@@ -18,6 +18,8 @@ declare module 'claude-code' {
       /** A fresh session (no prompts yet, or just /clear-ed): the band shows the Lantern welcome. */
       welcome: boolean
       now: number
+      /** The spinner's mode as its ring last reported it (null since the prompt began), and the prompt's roll. */
+      power: { kind: 'charging' | 'focusing' | 'flowing' | 'shaping' | 'surging' | null; roll: number }
     }
   }
 }
